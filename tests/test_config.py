@@ -186,6 +186,7 @@ def test_sample_config_data_fields(sample_config_data):
         deezer=DeezerConfig(
             arl="testarl",
             quality=2,
+            fallback_quality=1,
             use_deezloader=True,
             deezloader_warnings=True,
         ),

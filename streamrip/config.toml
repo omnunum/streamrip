@@ -59,6 +59,9 @@ token_expiry = ""
 # This only applies to paid Deezer subscriptions. Those using deezloader
 # are automatically limited to quality = 1
 quality = 2
+# If the target quality is not available, fallback to this quality
+# 0 = MP3_128, 1 = MP3_320, 2 = FLAC
+fallback_quality = 1
 # An authentication cookie that allows streamrip to use your Deezer account
 # See https://github.com/nathom/streamrip/wiki/Finding-Your-Deezer-ARL-Cookie
 # for instructions on how to find this
@@ -190,6 +193,6 @@ max_search_results = 100
 
 [misc]
 # Metadata to identify this config file. Do not change.
-version = "2.0.6"
+version = "2.1.0"
 # Print a message if a new version of streamrip is available 
 check_for_updates = true

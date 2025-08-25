@@ -17,7 +17,7 @@ logger = logging.getLogger("streamrip")
 APP_DIR = click.get_app_dir("streamrip")
 os.makedirs(APP_DIR, exist_ok=True)
 DEFAULT_CONFIG_PATH = os.path.join(APP_DIR, "config.toml")
-CURRENT_CONFIG_VERSION = "2.0.6"
+CURRENT_CONFIG_VERSION = "2.2.0"
 
 
 class OutdatedConfigError(Exception):
@@ -66,6 +66,8 @@ class DeezerConfig:
     # This only applies to paid Deezer subscriptions. Those using deezloader
     # are automatically limited to quality = 1
     quality: int
+    # If the target quality is not available, fallback to this quality
+    fallback_quality: int
     # This allows for free 320kbps MP3 downloads from Deezer
     # If an arl is provided, deezloader is never used
     use_deezloader: bool

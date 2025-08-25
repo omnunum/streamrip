@@ -157,12 +157,18 @@ class DeezerClient(Client):
             (3, "MP3_320"),  # quality 1
             (1, "FLAC"),  # quality 2
         ]
-
-        _, format_str = quality_map[quality]
-
-        dl_info["quality_to_size"] = [
+        size_map = [
             int(track_info.get(f"FILESIZE_{format}", 0)) for _, format in quality_map
         ]
+        dl_info["quality_to_size"] = size_map
+        if size_map[quality] == 0 and size_map[self.config.fallback_quality] != 0:
+            quality = self.config.fallback_quality
+            logger.warning(
+                "The requested quality is not available. Falling back to quality %s",
+                quality,
+            )
+
+        _, format_str = quality_map[quality]
 
         token = track_info["TRACK_TOKEN"]
         try:
