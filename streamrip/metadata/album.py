@@ -50,6 +50,19 @@ class AlbumMetadata:
     grouping: str | None = None
     lyrics: str | None = None
     purchase_date: str | None = None
+    source_platform: str | None = None
+    source_album_id: str | None = None
+    # Additional Deezer tags
+    label: str | None = None  # Publisher tag
+    bpm: int | None = None
+    upc: str | None = None
+    barcode: str | None = None  # Alias for UPC
+    gain: str | None = None  # ReplayGain format: "+/-X.XX dB"
+    record_type: str | None = None
+    # New standard tags
+    album_artist_credit: str | None = None  # Different from album artist
+    original_release_date: str | None = None  # Different from release date
+    media_type: str | None = None  # "WEB" for streaming sources
 
     def get_genres(self) -> str:
         return ", ".join(self.genre)
@@ -173,6 +186,18 @@ class AlbumMetadata:
         albumcomposer = None
         label = resp.get("label")
         booklets = None
+        
+        # Extract additional Deezer metadata - keep it simple
+        bpm = None  # Album-level BPM typically not used, let tracks handle it
+        upc = resp.get("upc")
+        barcode = upc  # BARCODE is alias for UPC
+        gain = resp.get("gain")
+        record_type = resp.get("record_type")
+        
+        # Additional standard metadata
+        album_artist_credit = resp.get("album_artist_credit")
+        original_release_date = resp.get("original_release_date")
+        media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
         explicit = typed(
             resp.get("parental_warning", False) or resp.get("explicit_lyrics", False),
             bool,
@@ -216,6 +241,17 @@ class AlbumMetadata:
             lyrics=None,
             purchase_date=None,
             tracktotal=tracktotal,
+            source_platform="deezer",
+            source_album_id=item_id,
+            label=label,
+            bpm=bpm,
+            upc=upc,
+            barcode=barcode,
+            gain=gain,
+            record_type=record_type,
+            album_artist_credit=album_artist_credit,
+            original_release_date=original_release_date,
+            media_type=media_type,
         )
 
     @classmethod

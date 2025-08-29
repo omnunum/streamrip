@@ -158,7 +158,7 @@ class DeezerClient(Client):
             (1, "FLAC"),  # quality 2
         ]
         size_map = [
-            int(track_info.get(f"FILESIZE_{format_num}", 0)) for format_num, _ in quality_map
+            int(track_info.get(f"FILESIZE_{format}", 0)) for _, format in quality_map
         ]
         dl_info["quality_to_size"] = size_map
         
