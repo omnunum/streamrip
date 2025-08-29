@@ -105,6 +105,8 @@ class TrackMetadata:
         
         # Extract track-level metadata  
         bpm = resp.get("bpm")
+        if bpm == 0:
+            bpm = None
         gain = resp.get("gain")
         bit_depth = 16
         sampling_rate = 44.1
