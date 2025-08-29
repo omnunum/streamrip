@@ -66,8 +66,8 @@ class DeezerConfig:
     # This only applies to paid Deezer subscriptions. Those using deezloader
     # are automatically limited to quality = 1
     quality: int
-    # If the target quality is not available, fallback to this quality
-    fallback_quality: int
+    # If the target quality is not available, fallback to best quality available
+    lower_quality_if_not_available: bool
     # This allows for free 320kbps MP3 downloads from Deezer
     # If an arl is provided, deezloader is never used
     use_deezloader: bool

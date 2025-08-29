@@ -59,8 +59,8 @@ token_expiry = "tokenexpiry"
 # This only applies to paid Deezer subscriptions. Those using deezloader
 # are automatically limited to quality = 1
 quality = 2
-# If the target quality is not available, fallback to this quality
-fallback_quality = 1
+# If the target quality is not available, fallback to best quality available
+lower_quality_if_not_available = true
 # An authentication cookie that allows streamrip to use your Deezer account
 # See https://github.com/nathom/streamrip/wiki/Finding-Your-Deezer-ARL-Cookie
 # for instructions on how to find this

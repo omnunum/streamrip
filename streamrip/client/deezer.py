@@ -158,15 +158,29 @@ class DeezerClient(Client):
             (1, "FLAC"),  # quality 2
         ]
         size_map = [
-            int(track_info.get(f"FILESIZE_{format}", 0)) for _, format in quality_map
+            int(track_info.get(f"FILESIZE_{format_num}", 0)) for format_num, _ in quality_map
         ]
         dl_info["quality_to_size"] = size_map
-        if size_map[quality] == 0 and size_map[self.config.fallback_quality] != 0:
-            quality = self.config.fallback_quality
-            logger.warning(
-                "The requested quality is not available. Falling back to quality %s",
-                quality,
-            )
+        
+        # Check if requested quality is available
+        if size_map[quality] == 0:
+            if self.config.lower_quality_if_not_available:
+                # Fallback to lower quality
+                while size_map[quality] == 0 and quality > 0:
+                    logger.warning(
+                        "The requested quality %s is not available. Falling back to quality %s",
+                        quality,
+                        quality - 1,
+                    )
+                    quality -= 1
+            else:
+                # No fallback - raise error
+                raise NonStreamableError(
+                    f"The requested quality {quality} is not available and fallback is disabled."
+                )
+        
+        # Update the quality in dl_info to reflect the final quality used
+        dl_info["quality"] = quality
 
         _, format_str = quality_map[quality]
 
