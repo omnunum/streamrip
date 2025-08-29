@@ -178,7 +178,7 @@ class Container(Enum):
                 elif k in ["source_track_id", "source_album_id", "source_artist_id"]:
                     # Format source tags dynamically based on platform
                     if meta.source_platform and tag:
-                        formatted_key = f"{meta.source_platform.upper()}_{k.replace('source_', '')}"
+                        formatted_key = f"{meta.source_platform}_{k.replace('source_', '')}".upper()
                         out.append((formatted_key, str(tag)))
                     continue
                 elif k == "artist":
@@ -202,7 +202,7 @@ class Container(Enum):
             elif k in ["source_track_id", "source_album_id", "source_artist_id"]:
                 # Format source tags dynamically based on platform
                 if meta.source_platform and self._attr_from_meta(meta, k):
-                    formatted_key = f"TXXX:{meta.source_platform.upper()}_{k.replace('source_', '')}"
+                    formatted_key = f"TXXX:{meta.source_platform}_{k.replace('source_', '')}".upper()
                     text = self._attr_from_meta(meta, k)
                     if text is not None:
                         out.append((formatted_key, text))
@@ -246,7 +246,7 @@ class Container(Enum):
             elif k in ["source_track_id", "source_album_id", "source_artist_id"]:
                 # Format source tags dynamically based on platform
                 if meta.source_platform and self._attr_from_meta(meta, k):
-                    formatted_key = f"----:com.apple.iTunes:{meta.source_platform.upper()}_{k.replace('source_', '')}"
+                    formatted_key = f"----:com.apple.iTunes:{meta.source_platform.upper()}_{k.replace('source_', '').upper()}"
                     text = self._attr_from_meta(meta, k)
                     if text is not None:
                         text = text.encode("utf-8")  # MP4 freeform tags need bytes
