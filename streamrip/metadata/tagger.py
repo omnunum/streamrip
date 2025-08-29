@@ -40,6 +40,19 @@ MP4_KEYS = (
     None,
     None,
     "----:com.apple.iTunes:ISRC",
+    "©pub",  # label/publisher
+    "tmpo",  # bpm
+    "----:com.apple.iTunes:UPC",
+    "----:com.apple.iTunes:GAIN",
+    "----:com.apple.iTunes:RECORD_TYPE",
+    None,  # source_track_id (handled dynamically)
+    None,  # source_album_id (handled dynamically)
+    None,  # source_artist_id (handled dynamically)
+    "----:com.apple.iTunes:BARCODE",
+    "----:com.apple.iTunes:TRACK_ARTIST_CREDIT",
+    "----:com.apple.iTunes:ALBUM_ARTIST_CREDIT", 
+    "----:com.apple.iTunes:ORIGINAL_RELEASE_DATE",
+    "----:com.apple.iTunes:MEDIA_TYPE",
 )
 
 MP3_KEYS = (
@@ -64,6 +77,19 @@ MP3_KEYS = (
     None,
     None,
     id3.TSRC,
+    id3.TPUB,  # label/publisher 
+    id3.TBPM,  # bpm
+    None,  # upc (handled as TXXX)
+    None,  # gain (handled as TXXX)
+    None,  # record_type (handled as TXXX)
+    None,  # source_track_id (handled dynamically)
+    None,  # source_album_id (handled dynamically) 
+    None,  # source_artist_id (handled dynamically)
+    None,  # barcode (handled as TXXX)
+    None,  # track_artist_credit (handled as TXXX)
+    None,  # album_artist_credit (handled as TXXX)
+    None,  # original_release_date (handled as TXXX) 
+    None,  # media_type (handled as TXXX)
 )
 
 METADATA_TYPES = (
@@ -85,9 +111,22 @@ METADATA_TYPES = (
     "tracknumber",
     "discnumber",
     "tracktotal",
-    "disctotal",
+    "disctotal", 
     "date",
     "isrc",
+    "label",
+    "bpm",
+    "upc",
+    "gain",
+    "record_type",
+    "source_track_id",
+    "source_album_id", 
+    "source_artist_id",
+    "barcode",
+    "track_artist_credit",
+    "album_artist_credit",
+    "original_release_date",
+    "media_type",
 )
 
 
@@ -136,7 +175,20 @@ class Container(Enum):
                     "disctotal",
                 }:
                     tag = f"{int(tag):02}"
-
+                elif k in ["source_track_id", "source_album_id", "source_artist_id"]:
+                    # Format source tags dynamically based on platform
+                    if meta.source_platform and tag:
+                        formatted_key = f"{meta.source_platform.upper()}_{k.replace('source_', '')}"
+                        out.append((formatted_key, str(tag)))
+                    continue
+                elif k == "artist":
+                    # Handle multi-value artists for FLAC - return as list for mutagen
+                    if isinstance(tag, list):
+                        out.append((v, tag))  # Let mutagen handle the list
+                    else:
+                        out.append((v, str(tag)))
+                    continue
+                
                 out.append((v, str(tag)))
         return out
 
@@ -147,6 +199,31 @@ class Container(Enum):
                 text = f"{meta.tracknumber}/{meta.album.tracktotal}"
             elif k == "discnumber":
                 text = f"{meta.discnumber}/{meta.album.disctotal}"
+            elif k in ["source_track_id", "source_album_id", "source_artist_id"]:
+                # Format source tags dynamically based on platform
+                if meta.source_platform and self._attr_from_meta(meta, k):
+                    formatted_key = f"TXXX:{meta.source_platform.upper()}_{k.replace('source_', '')}"
+                    text = self._attr_from_meta(meta, k)
+                    if text is not None:
+                        out.append((formatted_key, text))
+                continue
+            elif k in ["upc", "gain", "record_type", "barcode", "track_artist_credit", "album_artist_credit", "original_release_date", "media_type"]:
+                # Handle as TXXX custom tags
+                text = self._attr_from_meta(meta, k)
+                if text is not None:
+                    out.append((f"TXXX:{k.upper()}", str(text)))
+                continue
+            elif k == "artist":
+                # Handle multi-value artists for MP3
+                artist_value = self._attr_from_meta(meta, k)
+                if artist_value is not None:
+                    if isinstance(artist_value, list):
+                        # Multi-value: join with null separator for ID3v2.4, semicolon for fallback
+                        text = '\0'.join(artist_value) if len(artist_value) > 1 else artist_value[0]
+                    else:
+                        text = artist_value
+                else:
+                    text = None
             else:
                 text = self._attr_from_meta(meta, k)
 
@@ -166,6 +243,33 @@ class Container(Enum):
                 # we have to pass in the actual bytes to mutagen
                 # See mutagen.MP4Tags.__render_freeform
                 text = meta.isrc.encode("utf-8")
+            elif k in ["source_track_id", "source_album_id", "source_artist_id"]:
+                # Format source tags dynamically based on platform
+                if meta.source_platform and self._attr_from_meta(meta, k):
+                    formatted_key = f"----:com.apple.iTunes:{meta.source_platform.upper()}_{k.replace('source_', '')}"
+                    text = self._attr_from_meta(meta, k)
+                    if text is not None:
+                        text = text.encode("utf-8")  # MP4 freeform tags need bytes
+                        out.append((formatted_key, text))
+                continue
+            elif k in ["upc", "gain", "record_type", "barcode", "track_artist_credit", "album_artist_credit", "original_release_date", "media_type"] and v is not None:
+                # Handle custom MP4 freeform tags that need bytes encoding
+                text = self._attr_from_meta(meta, k)
+                if text is not None:
+                    text = str(text).encode("utf-8")
+                    out.append((v, text))
+                continue
+            elif k == "artist":
+                # Handle multi-value artists for MP4
+                artist_value = self._attr_from_meta(meta, k)
+                if artist_value is not None:
+                    if isinstance(artist_value, list):
+                        # MP4 supports arrays natively
+                        text = artist_value
+                    else:
+                        text = [artist_value]  # Wrap single artist in list
+                else:
+                    text = None
             else:
                 text = self._attr_from_meta(meta, k)
 
@@ -184,10 +288,23 @@ class Container(Enum):
             "composer",
             "isrc",
             "lyrics",
+            # Track-specific source metadata
+            "source_platform",
+            "source_track_id",
+            "source_album_id", 
+            "source_artist_id",
+            # Track-specific additional metadata
+            "bpm",
+            "gain",
+            "track_artist_credit",
+            "media_type",
         }
         if attr in in_trackmetadata:
             if attr == "album":
                 return meta.album.album
+            elif attr == "artist":
+                # Return raw artist value (list or string) for format handlers to process
+                return getattr(meta, attr)
             val = getattr(meta, attr)
             if val is None:
                 return None
@@ -204,7 +321,14 @@ class Container(Enum):
 
     def tag_audio(self, audio, tags: list[tuple]):
         for k, v in tags:
-            audio[k] = v
+            if k.startswith("TXXX:"):
+                # Handle TXXX frames for custom tags
+                description = k.split(":", 1)[1]
+                txxx = id3.TXXX(encoding=3, desc=description, text=v)
+                audio.add(txxx)
+            else:
+                # Handle regular tags
+                audio[k] = v
 
     async def embed_cover(self, audio, cover_path):
         if self == Container.FLAC:

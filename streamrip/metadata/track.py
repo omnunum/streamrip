@@ -27,12 +27,22 @@ class TrackMetadata:
 
     title: str
     album: AlbumMetadata
-    artist: str
+    artist: str | list[str]  # Support both single string and multi-value
     tracknumber: int
     discnumber: int
     composer: str | None
     isrc: str | None = None
     lyrics: str | None = ""
+    source_platform: str | None = None  # e.g., "deezer", "tidal", "qobuz"
+    source_track_id: str | None = None  # Platform-specific track ID
+    source_album_id: str | None = None  # Platform-specific album ID
+    source_artist_id: str | None = None # Platform-specific artist ID
+    # Additional Deezer tags
+    bpm: int | None = None
+    gain: str | None = None  # ReplayGain format: "+/-X.XX dB"
+    # New standard tags
+    track_artist_credit: str | None = None  # Different from track artist
+    media_type: str | None = None  # "WEB" for streaming sources
 
     @classmethod
     def from_qobuz(cls, album: AlbumMetadata, resp: dict) -> TrackMetadata | None:
@@ -89,13 +99,29 @@ class TrackMetadata:
     @classmethod
     def from_deezer(cls, album: AlbumMetadata, resp) -> TrackMetadata | None:
         track_id = str(resp["id"])
+        # Get first artist ID from contributors list
+        artist_id = str(resp["contributors"][0]["id"]) if resp["contributors"] else None
         isrc = typed(resp["isrc"], str)
+        
+        # Extract track-level metadata  
+        bpm = resp.get("bpm")
+        gain = resp.get("gain")
         bit_depth = 16
         sampling_rate = 44.1
         explicit = typed(resp["explicit_lyrics"], bool)
         work = None
         title = typed(resp["title"], str)
-        artist = typed(resp["artist"]["name"], str)
+        # Multi-value artist support
+        contributors = resp.get("contributors", [])
+        if contributors:
+            artist = [contributor["name"] for contributor in contributors]
+        else:
+            # Fallback to single artist if no contributors
+            artist = typed(resp.get("artist", {}).get("name", "Unknown Artist"), str)
+        
+        # Additional metadata
+        track_artist_credit = resp.get("artist_credit")
+        media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
         tracknumber = typed(resp["track_position"], int)
         discnumber = typed(resp["disk_number"], int)
         composer = None
@@ -116,6 +142,14 @@ class TrackMetadata:
             discnumber=discnumber,
             composer=composer,
             isrc=isrc,
+            source_platform=album.source_platform,
+            source_track_id=track_id,
+            source_album_id=album.source_album_id,
+            source_artist_id=artist_id,
+            bpm=bpm,
+            gain=gain,
+            track_artist_credit=track_artist_credit,
+            media_type=media_type,
         )
 
     @classmethod
