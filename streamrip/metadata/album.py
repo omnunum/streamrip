@@ -52,16 +52,15 @@ class AlbumMetadata:
     purchase_date: str | None = None
     source_platform: str | None = None
     source_album_id: str | None = None
+    source_artist_id: str | None = None
     # Additional Deezer tags
-    label: str | None = None  # Publisher tag
     bpm: int | None = None
-    upc: str | None = None
-    barcode: str | None = None  # Alias for UPC
-    gain: str | None = None  # ReplayGain format: "+/-X.XX dB"
-    record_type: str | None = None
+    barcode: str | None = None  # UPC/Barcode
+    replaygain_album_gain: str | None = None  # ReplayGain format: "+/-X.XX dB"
+    releasetype: str | None = None  # Vorbis standard name
     # New standard tags
     album_artist_credit: str | None = None  # Different from album artist
-    original_release_date: str | None = None  # Different from release date
+    originaldate: str | None = None  # Vorbis standard name
     media_type: str | None = None  # "WEB" for streaming sources
 
     def get_genres(self) -> str:
@@ -77,9 +76,18 @@ class AlbumMetadata:
 
     def format_folder_path(self, formatter: str) -> str:
         # Available keys: "albumartist", "title", "year", "bit_depth", "sampling_rate",
-        # "id", and "albumcomposer",
+        # "id", "albumcomposer", "releasetype"
 
         none_str = "Unknown"
+        # Format releasetype with title case, except keep EP uppercase
+        releasetype_formatted = none_str
+        if self.releasetype:
+            rt = clean_filename(self.releasetype)
+            if rt.upper() == "EP":
+                releasetype_formatted = "EP"
+            else:
+                releasetype_formatted = rt.title()
+        
         info: dict[str, str | int | float] = {
             "albumartist": clean_filename(self.albumartist),
             "albumcomposer": clean_filename(self.albumcomposer or "") or none_str,
@@ -89,6 +97,7 @@ class AlbumMetadata:
             "title": clean_filename(self.album),
             "year": self.year,
             "container": self.info.container,
+            "releasetype": releasetype_formatted,
         }
 
         return clean_filepath(formatter.format(**info))
@@ -183,20 +192,20 @@ class AlbumMetadata:
         _copyright = None
         description = None
         albumartist = typed(safe_get(resp, "artist", "name"), str)
+        artist_id = str(safe_get(resp, "artist", "id")) if safe_get(resp, "artist", "id") else None
         albumcomposer = None
         label = resp.get("label")
         booklets = None
         
         # Extract additional Deezer metadata - keep it simple
         bpm = None  # Album-level BPM typically not used, let tracks handle it
-        upc = resp.get("upc")
-        barcode = upc  # BARCODE is alias for UPC
-        gain = resp.get("gain")
-        record_type = resp.get("record_type")
+        barcode = resp.get("upc")  # Use standardized name
+        replaygain_album_gain = resp.get("gain")
+        releasetype = resp.get("record_type")  # Use Vorbis standard name
         
         # Additional standard metadata
         album_artist_credit = resp.get("album_artist_credit")
-        original_release_date = resp.get("original_release_date")
+        originaldate = resp.get("original_release_date")  # Use Vorbis standard name
         media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
         explicit = typed(
             resp.get("parental_warning", False) or resp.get("explicit_lyrics", False),
@@ -243,14 +252,13 @@ class AlbumMetadata:
             tracktotal=tracktotal,
             source_platform="deezer",
             source_album_id=item_id,
-            label=label,
+            source_artist_id=artist_id,
             bpm=bpm,
-            upc=upc,
             barcode=barcode,
-            gain=gain,
-            record_type=record_type,
+            replaygain_album_gain=replaygain_album_gain,
+            releasetype=releasetype,
             album_artist_credit=album_artist_credit,
-            original_release_date=original_release_date,
+            originaldate=originaldate,
             media_type=media_type,
         )
 

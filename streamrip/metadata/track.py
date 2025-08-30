@@ -19,18 +19,21 @@ class TrackInfo:
     explicit: bool = False
     sampling_rate: Optional[int | float] = None
     work: Optional[str] = None
+    container: Optional[str] = None
 
 
 @dataclass(slots=True)
 class TrackMetadata:
     info: TrackInfo
-
     title: str
     album: AlbumMetadata
-    artist: str | list[str]  # Support both single string and multi-value
+    artist: str  # Primary/first artist only (MusicBrainz standard)
     tracknumber: int
     discnumber: int
     composer: str | None
+    author: str | None  # Songwriter/lyricist
+    # Fields with defaults must come after non-default fields
+    artists: list[str] | None = None  # All contributing artists (MusicBrainz standard)
     isrc: str | None = None
     lyrics: str | None = ""
     source_platform: str | None = None  # e.g., "deezer", "tidal", "qobuz"
@@ -39,7 +42,7 @@ class TrackMetadata:
     source_artist_id: str | None = None # Platform-specific artist ID
     # Additional Deezer tags
     bpm: int | None = None
-    gain: str | None = None  # ReplayGain format: "+/-X.XX dB"
+    replaygain_track_gain: str | None = None  # ReplayGain format: "+/-X.XX dB"
     # New standard tags
     track_artist_credit: str | None = None  # Different from track artist
     media_type: str | None = None  # "WEB" for streaming sources
@@ -71,6 +74,7 @@ class TrackMetadata:
             ),
             str,
         )
+        artists = [artist]  # Qobuz typically has single artist
         track_id = str(resp["id"])
         bit_depth = typed(resp.get("maximum_bit_depth"), int | None)
         sampling_rate = typed(resp.get("maximum_sampling_rate"), int | float | None)
@@ -93,6 +97,8 @@ class TrackMetadata:
             tracknumber=tracknumber,
             discnumber=discnumber,
             composer=composer,
+            author=None,
+            artists=artists,
             isrc=isrc,
         )
 
@@ -107,26 +113,44 @@ class TrackMetadata:
         bpm = resp.get("bpm")
         if bpm == 0:
             bpm = None
-        gain = resp.get("gain")
+        replaygain_track_gain = resp.get("gain")
         bit_depth = 16
         sampling_rate = 44.1
         explicit = typed(resp["explicit_lyrics"], bool)
         work = None
         title = typed(resp["title"], str)
-        # Multi-value artist support
+        # Artist handling following MusicBrainz standard
         contributors = resp.get("contributors", [])
         if contributors:
-            artist = [contributor["name"] for contributor in contributors]
+            all_artists = [contributor["name"] for contributor in contributors]
+            artist = all_artists[0]  # Primary artist (first one)
+            artists = all_artists  # All artists
         else:
             # Fallback to single artist if no contributors
             artist = typed(resp.get("artist", {}).get("name", "Unknown Artist"), str)
+            artists = [artist]  # Single artist list
         
         # Additional metadata
         track_artist_credit = resp.get("artist_credit")
         media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
         tracknumber = typed(resp["track_position"], int)
         discnumber = typed(resp["disk_number"], int)
+        
+        # Extract composer and author from detailed track info if available
         composer = None
+        author = None
+        if "composer" in resp:
+            composers = resp["composer"]
+            if isinstance(composers, list) and composers:
+                composer = ", ".join(composers)
+            elif isinstance(composers, str):
+                composer = composers
+        if "author" in resp:
+            authors = resp["author"] 
+            if isinstance(authors, list) and authors:
+                author = ", ".join(authors)
+            elif isinstance(authors, str):
+                author = authors
         info = TrackInfo(
             id=track_id,
             quality=album.info.quality,
@@ -143,13 +167,15 @@ class TrackMetadata:
             tracknumber=tracknumber,
             discnumber=discnumber,
             composer=composer,
+            author=author,
+            artists=artists,
             isrc=isrc,
             source_platform=album.source_platform,
             source_track_id=track_id,
             source_album_id=album.source_album_id,
             source_artist_id=artist_id,
             bpm=bpm,
-            gain=gain,
+            replaygain_track_gain=replaygain_track_gain,
             track_artist_credit=track_artist_credit,
             media_type=media_type,
         )
@@ -167,6 +193,7 @@ class TrackMetadata:
 
         title = typed(track["title"].strip(), str)
         artist = typed(track["user"]["username"], str)
+        artists = [artist]  # Soundcloud has single artist
         tracknumber = 1
 
         info = TrackInfo(
@@ -185,6 +212,8 @@ class TrackMetadata:
             tracknumber=tracknumber,
             discnumber=0,
             composer=None,
+            author=None,
+            artists=artists,
             isrc=isrc,
         )
 
@@ -201,11 +230,14 @@ class TrackMetadata:
         tracknumber = typed(track.get("trackNumber", 1), int)
         discnumber = typed(track.get("volumeNumber", 1), int)
 
-        artists = track.get("artists")
-        if len(artists) > 0:
-            artist = ", ".join(a["name"] for a in artists)
+        tidal_artists = track.get("artists")
+        if len(tidal_artists) > 0:
+            all_artist_names = [a["name"] for a in tidal_artists]
+            artist = all_artist_names[0]  # Primary artist (first one)
+            artists = all_artist_names  # All artists
         else:
             artist = track["artist"]["name"]
+            artists = [artist]  # Single artist list
 
         lyrics = track.get("lyrics", "")
 
@@ -247,6 +279,8 @@ class TrackMetadata:
             tracknumber=tracknumber,
             discnumber=discnumber,
             composer=None,
+            author=None,
+            artists=artists,
             isrc=isrc,
             lyrics=lyrics,
         )
@@ -264,16 +298,24 @@ class TrackMetadata:
         raise Exception
 
     def format_track_path(self, format_string: str) -> str:
-        # Available keys: "tracknumber", "artist", "albumartist", "composer", "title",
-        # and "explicit", "albumcomposer"
+        # Available keys: "tracknumber", "artist", "artists", "albumartist", "composer", "title",
+        # "explicit", "albumcomposer", "album", "source_platform", "container"
         none_text = "Unknown"
+        # artist = primary artist only (MusicBrainz standard)
+        # artists = all artists comma-separated (MusicBrainz standard)
+        artists_str = ", ".join(self.artists) if self.artists else self.artist
+        
         info = {
             "title": self.title,
             "tracknumber": self.tracknumber,
-            "artist": self.artist,
+            "artist": self.artist,  # Primary artist only
+            "artists": artists_str,  # All artists comma-separated
             "albumartist": self.album.albumartist,
             "albumcomposer": self.album.albumcomposer or none_text,
             "composer": self.composer or none_text,
             "explicit": " (Explicit) " if self.info.explicit else "",
+            "album": self.album.album,
+            "source_platform": self.source_platform or none_text,
+            "container": self.info.container or none_text,
         }
         return format_string.format(**info)
