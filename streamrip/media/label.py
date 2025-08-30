@@ -71,11 +71,6 @@ class PendingLabel(Pending):
     db: Database
 
     async def resolve(self) -> Label | None:
-        # Check if this label is already fully downloaded
-        if self.db.release_downloaded(self.id, "label", self.client.source):
-            logger.info(f"Label {self.id} already fully downloaded - skipping")
-            return None
-            
         try:
             resp = await self.client.get_metadata(self.id, "label")
         except NonStreamableError as e:
@@ -87,16 +82,6 @@ class PendingLabel(Pending):
             logger.error(f"Error resolving Label: {e}")
             return None
         album_ids = meta.album_ids()
-        
-        # Check if all albums for this label are already marked as complete
-        all_albums_downloaded = all(
-            self.db.release_downloaded(album_id, "album", self.client.source) 
-            for album_id in album_ids
-        )
-        if all_albums_downloaded and len(album_ids) > 0:
-            logger.info(f"Label {self.id} has all albums already downloaded - marking as complete")
-            self.db.set_release_downloaded(self.id, "label", self.client.source, len(album_ids))
-            return None
         
         albums = [
             PendingAlbum(album_id, self.client, self.config, self.db)

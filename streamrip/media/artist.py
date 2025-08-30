@@ -195,11 +195,6 @@ class PendingArtist(Pending):
     db: Database
 
     async def resolve(self) -> Artist | None:
-        # Check if this artist is already fully downloaded
-        if self.db.release_downloaded(self.id, "artist", self.client.source):
-            logger.info(f"Artist {self.id} already fully downloaded - skipping")
-            return None
-            
         try:
             resp = await self.client.get_metadata(self.id, "artist")
         except NonStreamableError as e:
@@ -217,17 +212,6 @@ class PendingArtist(Pending):
             return None
 
         album_ids = meta.album_ids()
-        
-        # Check if all albums for this artist are already marked as complete
-        # Note: This doesn't account for filtering, so we're conservative here
-        all_albums_downloaded = all(
-            self.db.release_downloaded(album_id, "album", self.client.source) 
-            for album_id in album_ids
-        )
-        if all_albums_downloaded and len(album_ids) > 0:
-            logger.info(f"Artist {self.id} has all albums already downloaded - marking as complete")
-            self.db.set_release_downloaded(self.id, "artist", self.client.source, len(album_ids))
-            return None
         
         albums = [
             PendingAlbum(album_id, self.client, self.config, self.db)
