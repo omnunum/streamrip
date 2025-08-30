@@ -19,6 +19,7 @@ class TrackInfo:
     explicit: bool = False
     sampling_rate: Optional[int | float] = None
     work: Optional[str] = None
+    container: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -39,7 +40,7 @@ class TrackMetadata:
     source_artist_id: str | None = None # Platform-specific artist ID
     # Additional Deezer tags
     bpm: int | None = None
-    gain: str | None = None  # ReplayGain format: "+/-X.XX dB"
+    replaygain_track_gain: str | None = None  # ReplayGain format: "+/-X.XX dB"
     # New standard tags
     track_artist_credit: str | None = None  # Different from track artist
     media_type: str | None = None  # "WEB" for streaming sources
@@ -107,7 +108,7 @@ class TrackMetadata:
         bpm = resp.get("bpm")
         if bpm == 0:
             bpm = None
-        gain = resp.get("gain")
+        replaygain_track_gain = resp.get("gain")
         bit_depth = 16
         sampling_rate = 44.1
         explicit = typed(resp["explicit_lyrics"], bool)
@@ -149,7 +150,7 @@ class TrackMetadata:
             source_album_id=album.source_album_id,
             source_artist_id=artist_id,
             bpm=bpm,
-            gain=gain,
+            replaygain_track_gain=replaygain_track_gain,
             track_artist_credit=track_artist_credit,
             media_type=media_type,
         )
@@ -265,15 +266,21 @@ class TrackMetadata:
 
     def format_track_path(self, format_string: str) -> str:
         # Available keys: "tracknumber", "artist", "albumartist", "composer", "title",
-        # and "explicit", "albumcomposer"
+        # "explicit", "albumcomposer", "album", "source_platform", "container"
         none_text = "Unknown"
+        # Convert artist to comma-separated string if it's a list
+        artist_str = ", ".join(self.artist) if isinstance(self.artist, list) else self.artist
+        
         info = {
             "title": self.title,
             "tracknumber": self.tracknumber,
-            "artist": self.artist,
+            "artist": artist_str,
             "albumartist": self.album.albumartist,
             "albumcomposer": self.album.albumcomposer or none_text,
             "composer": self.composer or none_text,
             "explicit": " (Explicit) " if self.info.explicit else "",
+            "album": self.album.album,
+            "source_platform": self.source_platform or none_text,
+            "container": self.info.container or none_text,
         }
         return format_string.format(**info)

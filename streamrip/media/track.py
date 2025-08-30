@@ -155,6 +155,9 @@ class PendingTrack(Pending):
             )
             return None
 
+        # Update container format based on actual downloadable format
+        meta.info.container = downloadable.extension.upper()
+
         downloads_config = self.config.session.downloads
         if downloads_config.disc_subdirectories and self.album.disctotal > 1:
             folder = os.path.join(self.folder, f"Disc {meta.discnumber}")
@@ -238,6 +241,10 @@ class PendingSingle(Pending):
             self._download_cover(album.covers, folder),
             self.client.get_downloadable(self.id, quality),
         )
+        
+        # Update container format based on actual downloadable format
+        meta.info.container = downloadable.extension.upper()
+        
         return Track(
             meta,
             downloadable,
