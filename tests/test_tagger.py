@@ -62,6 +62,7 @@ def sample_metadata() -> TrackMetadata:
         3,
         1,
         "testcomposer",
+        "testauthor",  # Added required author field
     )
 
 
