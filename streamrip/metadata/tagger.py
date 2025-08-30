@@ -24,7 +24,8 @@ MP4_KEYS = (
     "----:com.apple.iTunes:ARTISTS",
     "\xa9alb",
     r"aART",
-    "\xa9day",
+    "\xa9wrt",  # composer
+    "----:com.apple.iTunes:AUTHOR",  # author/songwriter
     "\xa9day",
     "\xa9cmt",
     "desc",
@@ -63,6 +64,7 @@ MP3_KEYS = (
     id3.TALB,  # type: ignore
     id3.TPE2,  # type: ignore
     id3.TCOM,  # type: ignore
+    id3.TEXT,  # author/lyricist/songwriter
     id3.TYER,  # type: ignore
     id3.COMM,  # type: ignore
     id3.TIT1,  # description (content group)
@@ -101,6 +103,7 @@ METADATA_TYPES = (
     "album",
     "albumartist",
     "composer",
+    "author",
     "year",
     "comment",
     "description",
@@ -283,6 +286,7 @@ class Container(Enum):
             "tracknumber",
             "discnumber",
             "composer",
+            "author",
             "isrc",
             "lyrics",
             # Track-specific source metadata

@@ -151,7 +151,7 @@ class PendingTrack(Pending):
             downloadable = await self.client.get_downloadable(self.id, quality)
         except NonStreamableError as e:
             logger.error(
-                f"Error getting downloadable data for track {meta.tracknumber} [{self.id}]: {e}"
+                f"Error getting downloadable data for track {meta.tracknumber} '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}]: {e}"
             )
             return None
 

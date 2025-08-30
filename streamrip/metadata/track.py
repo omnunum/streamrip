@@ -31,6 +31,7 @@ class TrackMetadata:
     tracknumber: int
     discnumber: int
     composer: str | None
+    author: str | None  # Songwriter/lyricist
     # Fields with defaults must come after non-default fields
     artists: list[str] | None = None  # All contributing artists (MusicBrainz standard)
     isrc: str | None = None
@@ -93,10 +94,11 @@ class TrackMetadata:
             title=title,
             album=album,
             artist=artist,
-            artists=artists,
             tracknumber=tracknumber,
             discnumber=discnumber,
             composer=composer,
+            author=None,
+            artists=artists,
             isrc=isrc,
         )
 
@@ -133,7 +135,22 @@ class TrackMetadata:
         media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
         tracknumber = typed(resp["track_position"], int)
         discnumber = typed(resp["disk_number"], int)
+        
+        # Extract composer and author from detailed track info if available
         composer = None
+        author = None
+        if "composer" in resp:
+            composers = resp["composer"]
+            if isinstance(composers, list) and composers:
+                composer = ", ".join(composers)
+            elif isinstance(composers, str):
+                composer = composers
+        if "author" in resp:
+            authors = resp["author"] 
+            if isinstance(authors, list) and authors:
+                author = ", ".join(authors)
+            elif isinstance(authors, str):
+                author = authors
         info = TrackInfo(
             id=track_id,
             quality=album.info.quality,
@@ -147,10 +164,11 @@ class TrackMetadata:
             title=title,
             album=album,
             artist=artist,
-            artists=artists,
             tracknumber=tracknumber,
             discnumber=discnumber,
             composer=composer,
+            author=author,
+            artists=artists,
             isrc=isrc,
             source_platform=album.source_platform,
             source_track_id=track_id,
@@ -191,10 +209,11 @@ class TrackMetadata:
             title=title,
             album=album,
             artist=artist,
-            artists=artists,
             tracknumber=tracknumber,
             discnumber=0,
             composer=None,
+            author=None,
+            artists=artists,
             isrc=isrc,
         )
 
@@ -257,10 +276,11 @@ class TrackMetadata:
             title=title,
             album=album,
             artist=artist,
-            artists=artists,
             tracknumber=tracknumber,
             discnumber=discnumber,
             composer=None,
+            author=None,
+            artists=artists,
             isrc=isrc,
             lyrics=lyrics,
         )

@@ -74,9 +74,10 @@ class DeezerClient(Client):
 
         album_id = item["album"]["id"]
         try:
-            album_metadata, album_tracks = await asyncio.gather(
+            album_metadata, album_tracks, detailed_track_info = await asyncio.gather(
                 asyncio.to_thread(self.client.api.get_album, album_id),
                 asyncio.to_thread(self.client.api.get_album_tracks, album_id),
+                asyncio.to_thread(self.client.gw.get_track, item_id),
             )
         except Exception as e:
             logger.error(f"Error fetching album of track {item_id}: {e}")
@@ -85,6 +86,14 @@ class DeezerClient(Client):
         album_metadata["tracks"] = album_tracks["data"]
         album_metadata["track_total"] = len(album_tracks["data"])
         item["album"] = album_metadata
+        
+        # Add detailed track info with composer/author data if available
+        if detailed_track_info and "SNG_CONTRIBUTORS" in detailed_track_info:
+            contributors = detailed_track_info["SNG_CONTRIBUTORS"]
+            if "composer" in contributors:
+                item["composer"] = contributors["composer"]
+            if "author" in contributors:
+                item["author"] = contributors["author"]
 
         return item
 
@@ -167,9 +176,15 @@ class DeezerClient(Client):
             if self.config.lower_quality_if_not_available:
                 # Fallback to lower quality
                 while size_map[quality] == 0 and quality > 0:
+                    artist_name = track_info.get("ART_NAME", "Unknown Artist")
+                    album_title = track_info.get("ALB_TITLE", "Unknown Album") 
+                    track_title = track_info.get("SNG_TITLE", "Unknown Track")
                     logger.warning(
-                        "The requested quality %s is not available. Falling back to quality %s",
+                        "The requested quality %s is not available for '%s' by %s (Album: %s). Falling back to quality %s",
                         quality,
+                        track_title,
+                        artist_name,
+                        album_title,
                         quality - 1,
                     )
                     quality -= 1
