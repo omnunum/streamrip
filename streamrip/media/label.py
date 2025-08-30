@@ -83,6 +83,23 @@ class PendingLabel(Pending):
             return None
         album_ids = meta.album_ids()
         
+        # Check if all albums are already downloaded - if so, log summary instead of per-album
+        all_albums_downloaded = all(
+            self.db.release_downloaded(album_id, "album", self.client.source) 
+            for album_id in album_ids
+        )
+        if all_albums_downloaded and len(album_ids) > 0:
+            logger.info(f"Label {meta.name} ({self.id}) - all {len(album_ids)} albums already downloaded")
+            return None
+        
+        # Log if we have some new albums to process
+        new_albums = [
+            album_id for album_id in album_ids
+            if not self.db.release_downloaded(album_id, "album", self.client.source)
+        ]
+        if len(new_albums) > 0:
+            logger.info(f"Label {meta.name} ({self.id}) - found {len(new_albums)} new albums to download")
+        
         albums = [
             PendingAlbum(album_id, self.client, self.config, self.db)
             for album_id in album_ids
