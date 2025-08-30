@@ -21,6 +21,7 @@ FLAC_MAX_BLOCKSIZE = 16777215  # 16.7 MB
 MP4_KEYS = (
     "\xa9nam",
     "\xa9ART",
+    "----:com.apple.iTunes:ARTISTS",
     "\xa9alb",
     r"aART",
     "\xa9day",
@@ -58,6 +59,7 @@ MP4_KEYS = (
 MP3_KEYS = (
     id3.TIT2,  # type: ignore
     id3.TPE1,  # type: ignore
+    None,  # artists (handled as TXXX)
     id3.TALB,  # type: ignore
     id3.TPE2,  # type: ignore
     id3.TCOM,  # type: ignore
@@ -95,6 +97,7 @@ MP3_KEYS = (
 METADATA_TYPES = (
     "title",
     "artist",
+    "artists",
     "album",
     "albumartist",
     "composer",
@@ -181,10 +184,10 @@ class Container(Enum):
                         formatted_key = f"{meta.source_platform}_{k.replace('source_', '')}".upper()
                         out.append((formatted_key, str(tag)))
                     continue
-                elif k == "artist":
+                elif k == "artists":
                     # Handle multi-value artists for FLAC - return as list for mutagen
                     if isinstance(tag, list):
-                        out.append((v, tag))  # Let mutagen handle the list
+                        out.append((v, tag))  # Let mutagen handle the list natively
                     else:
                         out.append((v, str(tag)))
                     continue
@@ -207,23 +210,19 @@ class Container(Enum):
                     if text is not None:
                         out.append((formatted_key, text))
                 continue
+            elif k == "artists":
+                # Handle artists as TXXX with comma-separated values
+                artists = self._attr_from_meta(meta, k)
+                if artists is not None:
+                    text = ", ".join(artists) if isinstance(artists, list) else str(artists)
+                    out.append((f"TXXX:{k.upper()}", text))
+                continue
             elif k in ["barcode", "replaygain_track_gain", "replaygain_album_gain", "releasetype", "track_artist_credit", "album_artist_credit", "media_type", "purchase_date", "originaldate"]:
                 # Handle as TXXX custom tags
                 text = self._attr_from_meta(meta, k)
                 if text is not None:
                     out.append((f"TXXX:{k.upper()}", str(text)))
                 continue
-            elif k == "artist":
-                # Handle multi-value artists for MP3
-                artist_value = self._attr_from_meta(meta, k)
-                if artist_value is not None:
-                    if isinstance(artist_value, list):
-                        # Multi-value: join with null separator for ID3v2.4, semicolon for fallback
-                        text = '\0'.join(artist_value) if len(artist_value) > 1 else artist_value[0]
-                    else:
-                        text = artist_value
-                else:
-                    text = None
             else:
                 text = self._attr_from_meta(meta, k)
 
@@ -252,6 +251,14 @@ class Container(Enum):
                         text = text.encode("utf-8")  # MP4 freeform tags need bytes
                         out.append((formatted_key, text))
                 continue
+            elif k == "artists" and v is not None:
+                # Handle artists as MP4 freeform with byte encoding
+                artists = self._attr_from_meta(meta, k)
+                if artists is not None:
+                    text = ", ".join(artists) if isinstance(artists, list) else str(artists)
+                    text = text.encode("utf-8")
+                    out.append((v, text))
+                continue
             elif k in ["barcode", "replaygain_track_gain", "replaygain_album_gain", "releasetype", "track_artist_credit", "album_artist_credit", "originaldate", "media_type"] and v is not None:
                 # Handle custom MP4 freeform tags that need bytes encoding
                 text = self._attr_from_meta(meta, k)
@@ -259,17 +266,6 @@ class Container(Enum):
                     text = str(text).encode("utf-8")
                     out.append((v, text))
                 continue
-            elif k == "artist":
-                # Handle multi-value artists for MP4
-                artist_value = self._attr_from_meta(meta, k)
-                if artist_value is not None:
-                    if isinstance(artist_value, list):
-                        # MP4 supports arrays natively
-                        text = artist_value
-                    else:
-                        text = [artist_value]  # Wrap single artist in list
-                else:
-                    text = None
             else:
                 text = self._attr_from_meta(meta, k)
 
@@ -283,6 +279,7 @@ class Container(Enum):
             "title",
             "album",
             "artist",
+            "artists",
             "tracknumber",
             "discnumber",
             "composer",
@@ -303,7 +300,10 @@ class Container(Enum):
             if attr == "album":
                 return meta.album.album
             elif attr == "artist":
-                # Return raw artist value (list or string) for format handlers to process
+                # Return primary artist only (string)
+                return getattr(meta, attr)
+            elif attr == "artists":
+                # Return all artists as list for format handlers to process
                 return getattr(meta, attr)
             val = getattr(meta, attr)
             if val is None:

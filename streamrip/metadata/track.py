@@ -25,13 +25,14 @@ class TrackInfo:
 @dataclass(slots=True)
 class TrackMetadata:
     info: TrackInfo
-
     title: str
     album: AlbumMetadata
-    artist: str | list[str]  # Support both single string and multi-value
+    artist: str  # Primary/first artist only (MusicBrainz standard)
     tracknumber: int
     discnumber: int
     composer: str | None
+    # Fields with defaults must come after non-default fields
+    artists: list[str] | None = None  # All contributing artists (MusicBrainz standard)
     isrc: str | None = None
     lyrics: str | None = ""
     source_platform: str | None = None  # e.g., "deezer", "tidal", "qobuz"
@@ -72,6 +73,7 @@ class TrackMetadata:
             ),
             str,
         )
+        artists = [artist]  # Qobuz typically has single artist
         track_id = str(resp["id"])
         bit_depth = typed(resp.get("maximum_bit_depth"), int | None)
         sampling_rate = typed(resp.get("maximum_sampling_rate"), int | float | None)
@@ -91,6 +93,7 @@ class TrackMetadata:
             title=title,
             album=album,
             artist=artist,
+            artists=artists,
             tracknumber=tracknumber,
             discnumber=discnumber,
             composer=composer,
@@ -114,13 +117,16 @@ class TrackMetadata:
         explicit = typed(resp["explicit_lyrics"], bool)
         work = None
         title = typed(resp["title"], str)
-        # Multi-value artist support
+        # Artist handling following MusicBrainz standard
         contributors = resp.get("contributors", [])
         if contributors:
-            artist = [contributor["name"] for contributor in contributors]
+            all_artists = [contributor["name"] for contributor in contributors]
+            artist = all_artists[0]  # Primary artist (first one)
+            artists = all_artists  # All artists
         else:
             # Fallback to single artist if no contributors
             artist = typed(resp.get("artist", {}).get("name", "Unknown Artist"), str)
+            artists = [artist]  # Single artist list
         
         # Additional metadata
         track_artist_credit = resp.get("artist_credit")
@@ -141,6 +147,7 @@ class TrackMetadata:
             title=title,
             album=album,
             artist=artist,
+            artists=artists,
             tracknumber=tracknumber,
             discnumber=discnumber,
             composer=composer,
@@ -168,6 +175,7 @@ class TrackMetadata:
 
         title = typed(track["title"].strip(), str)
         artist = typed(track["user"]["username"], str)
+        artists = [artist]  # Soundcloud has single artist
         tracknumber = 1
 
         info = TrackInfo(
@@ -183,6 +191,7 @@ class TrackMetadata:
             title=title,
             album=album,
             artist=artist,
+            artists=artists,
             tracknumber=tracknumber,
             discnumber=0,
             composer=None,
@@ -202,11 +211,14 @@ class TrackMetadata:
         tracknumber = typed(track.get("trackNumber", 1), int)
         discnumber = typed(track.get("volumeNumber", 1), int)
 
-        artists = track.get("artists")
-        if len(artists) > 0:
-            artist = ", ".join(a["name"] for a in artists)
+        tidal_artists = track.get("artists")
+        if len(tidal_artists) > 0:
+            all_artist_names = [a["name"] for a in tidal_artists]
+            artist = all_artist_names[0]  # Primary artist (first one)
+            artists = all_artist_names  # All artists
         else:
             artist = track["artist"]["name"]
+            artists = [artist]  # Single artist list
 
         lyrics = track.get("lyrics", "")
 
@@ -245,6 +257,7 @@ class TrackMetadata:
             title=title,
             album=album,
             artist=artist,
+            artists=artists,
             tracknumber=tracknumber,
             discnumber=discnumber,
             composer=None,
@@ -265,16 +278,18 @@ class TrackMetadata:
         raise Exception
 
     def format_track_path(self, format_string: str) -> str:
-        # Available keys: "tracknumber", "artist", "albumartist", "composer", "title",
+        # Available keys: "tracknumber", "artist", "artists", "albumartist", "composer", "title",
         # "explicit", "albumcomposer", "album", "source_platform", "container"
         none_text = "Unknown"
-        # Convert artist to comma-separated string if it's a list
-        artist_str = ", ".join(self.artist) if isinstance(self.artist, list) else self.artist
+        # artist = primary artist only (MusicBrainz standard)
+        # artists = all artists comma-separated (MusicBrainz standard)
+        artists_str = ", ".join(self.artists) if self.artists else self.artist
         
         info = {
             "title": self.title,
             "tracknumber": self.tracknumber,
-            "artist": artist_str,
+            "artist": self.artist,  # Primary artist only
+            "artists": artists_str,  # All artists comma-separated
             "albumartist": self.album.albumartist,
             "albumcomposer": self.album.albumcomposer or none_text,
             "composer": self.composer or none_text,
