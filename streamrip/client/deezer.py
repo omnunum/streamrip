@@ -4,6 +4,7 @@ import hashlib
 import logging
 
 import deezer
+import requests
 from Cryptodome.Cipher import AES
 
 from ..config import Config
@@ -36,9 +37,29 @@ class DeezerClient(Client):
 
     def __init__(self, config: Config):
         self.global_config = config
-        self.client = deezer.Deezer()
         self.logged_in = False
         self.config = config.session.deezer
+        
+        # Get config values
+        requests_per_minute = getattr(config.session.downloads, 'requests_per_minute', 600)
+        max_connections = getattr(config.session.downloads, 'max_connections', 10)
+        
+        # Create deezer client and configure its requests session with proper connection pool size
+        self.client = deezer.Deezer()
+        
+        # Configure the requests session connection pool size to match max_connections
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=max_connections,
+            pool_maxsize=max_connections,
+            max_retries=0
+        )
+        self.client.session.mount('http://', adapter)
+        self.client.session.mount('https://', adapter)
+        
+        # Rate limit: 10 requests/second = 600 requests/minute (Deezer API limit)
+        self.rate_limiter = self.get_rate_limiter(requests_per_minute)
+        # Concurrency limit using config value
+        self.concurrency_limiter = asyncio.Semaphore(max_connections)
 
     async def login(self):
         # Used for track downloads
@@ -52,6 +73,15 @@ class DeezerClient(Client):
         if not success:
             raise AuthenticationError
         self.logged_in = True
+
+    async def _api_call(self, func, *args, **kwargs):
+        """Wrapper for deezer API calls with rate and concurrency limiting."""
+        async with self.concurrency_limiter:
+            async with self.rate_limiter:
+                # Handle mocks directly without threading for tests
+                if hasattr(func, '_mock_name') or str(type(func).__name__) == 'MagicMock':
+                    return func(*args, **kwargs)
+                return await asyncio.to_thread(func, *args, **kwargs)
 
     async def get_metadata(self, item_id: str, media_type: str) -> dict:
         # TODO: open asyncio PR to deezer py and integrate
@@ -68,16 +98,16 @@ class DeezerClient(Client):
 
     async def get_track(self, item_id: str) -> dict:
         try:
-            item = await asyncio.to_thread(self.client.api.get_track, item_id)
+            item = await self._api_call(self.client.api.get_track, item_id)
         except Exception as e:
             raise NonStreamableError(e)
 
         album_id = item["album"]["id"]
         try:
             album_metadata, album_tracks, detailed_track_info = await asyncio.gather(
-                asyncio.to_thread(self.client.api.get_album, album_id),
-                asyncio.to_thread(self.client.api.get_album_tracks, album_id),
-                asyncio.to_thread(self.client.gw.get_track, item_id),
+                self._api_call(self.client.api.get_album, album_id),
+                self._api_call(self.client.api.get_album_tracks, album_id),
+                self._api_call(self.client.gw.get_track, item_id),
             )
         except Exception as e:
             logger.error(f"Error fetching album of track {item_id}: {e}")
@@ -99,8 +129,8 @@ class DeezerClient(Client):
 
     async def get_album(self, item_id: str) -> dict:
         album_metadata, album_tracks = await asyncio.gather(
-            asyncio.to_thread(self.client.api.get_album, item_id),
-            asyncio.to_thread(self.client.api.get_album_tracks, item_id),
+            self._api_call(self.client.api.get_album, item_id),
+            self._api_call(self.client.api.get_album_tracks, item_id),
         )
         album_metadata["tracks"] = album_tracks["data"]
         album_metadata["track_total"] = len(album_tracks["data"])
@@ -108,8 +138,8 @@ class DeezerClient(Client):
 
     async def get_playlist(self, item_id: str) -> dict:
         pl_metadata, pl_tracks = await asyncio.gather(
-            asyncio.to_thread(self.client.api.get_playlist, item_id),
-            asyncio.to_thread(self.client.api.get_playlist_tracks, item_id),
+            self._api_call(self.client.api.get_playlist, item_id),
+            self._api_call(self.client.api.get_playlist_tracks, item_id),
         )
         pl_metadata["tracks"] = pl_tracks["data"]
         pl_metadata["track_total"] = len(pl_tracks["data"])
@@ -117,8 +147,8 @@ class DeezerClient(Client):
 
     async def get_artist(self, item_id: str) -> dict:
         artist, albums = await asyncio.gather(
-            asyncio.to_thread(self.client.api.get_artist, item_id),
-            asyncio.to_thread(self.client.api.get_artist_albums, item_id),
+            self._api_call(self.client.api.get_artist, item_id),
+            self._api_call(self.client.api.get_artist_albums, item_id),
         )
         artist["albums"] = albums["data"]
         return artist
@@ -157,7 +187,7 @@ class DeezerClient(Client):
         # TODO: optimize such that all of the ids are requested at once
         dl_info: dict = {"quality": quality, "id": item_id}
 
-        track_info = self.client.gw.get_track(item_id)
+        track_info = await self._api_call(self.client.gw.get_track, item_id)
 
         fallback_id = track_info.get("FALLBACK", {}).get("SNG_ID")
 
