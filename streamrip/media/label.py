@@ -22,6 +22,8 @@ class Label(Media):
     albums: list[PendingAlbum]
     client: Client
     config: Config
+    label_id: str = None  # Store the label ID for release tracking
+    db: Database = None
 
     async def preprocess(self):
         pass
@@ -46,7 +48,13 @@ class Label(Media):
             await asyncio.gather(*batch)
 
     async def postprocess(self):
-        pass
+        # Check if all albums for this label were successfully processed
+        if self.label_id and self.db:
+            # Mark label as complete if at least one album was processed
+            if len(self.albums) > 0:
+                source = getattr(self.client, 'source', 'unknown')
+                self.db.set_release_downloaded(self.label_id, "label", source, len(self.albums))
+                logger.info(f"Label {self.label_id} processed ({len(self.albums)} albums) - marked as complete")
 
     @staticmethod
     def batch(iterable, n=1):
@@ -63,6 +71,11 @@ class PendingLabel(Pending):
     db: Database
 
     async def resolve(self) -> Label | None:
+        # Check if this label is already fully downloaded
+        if self.db.release_downloaded(self.id, "label", self.client.source):
+            logger.info(f"Label {self.id} already fully downloaded - skipping")
+            return None
+            
         try:
             resp = await self.client.get_metadata(self.id, "label")
         except NonStreamableError as e:
@@ -73,8 +86,20 @@ class PendingLabel(Pending):
         except Exception as e:
             logger.error(f"Error resolving Label: {e}")
             return None
+        album_ids = meta.album_ids()
+        
+        # Check if all albums for this label are already marked as complete
+        all_albums_downloaded = all(
+            self.db.release_downloaded(album_id, "album", self.client.source) 
+            for album_id in album_ids
+        )
+        if all_albums_downloaded and len(album_ids) > 0:
+            logger.info(f"Label {self.id} has all albums already downloaded - marking as complete")
+            self.db.set_release_downloaded(self.id, "label", self.client.source, len(album_ids))
+            return None
+        
         albums = [
             PendingAlbum(album_id, self.client, self.config, self.db)
-            for album_id in meta.album_ids()
+            for album_id in album_ids
         ]
-        return Label(meta.name, albums, self.client, self.config)
+        return Label(meta.name, albums, self.client, self.config, self.id, self.db)

@@ -178,10 +178,24 @@ class Failed(DatabaseBase):
     }
 
 
+class DownloadedReleases(DatabaseBase):
+    """A table that stores completed releases (albums, artists, playlists)."""
+
+    name = "downloaded_releases"
+    structure: Final[dict] = {
+        "id": ["text"],
+        "type": ["text"],  # "album", "artist", "playlist"
+        "source": ["text"],  # "deezer", "qobuz", "tidal"
+        "download_date": ["text"],  # ISO timestamp
+        "track_count": ["integer"],
+    }
+
+
 @dataclass(slots=True)
 class Database:
     downloads: DatabaseInterface
     failed: DatabaseInterface
+    releases: DatabaseInterface
 
     def downloaded(self, item_id: str) -> bool:
         return self.downloads.contains(id=item_id)
@@ -194,3 +208,13 @@ class Database:
 
     def set_failed(self, source: str, media_type: str, id: str):
         self.failed.add((source, media_type, id))
+
+    def release_downloaded(self, release_id: str, media_type: str, source: str) -> bool:
+        """Check if entire release is already downloaded."""
+        return self.releases.contains(id=release_id, type=media_type, source=source)
+
+    def set_release_downloaded(self, release_id: str, media_type: str, source: str, track_count: int):
+        """Mark entire release as downloaded."""
+        from datetime import datetime
+        download_date = datetime.now().isoformat()
+        self.releases.add((release_id, media_type, source, download_date, track_count))

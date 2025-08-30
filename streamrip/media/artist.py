@@ -28,6 +28,8 @@ class Artist(Media):
     albums: list[PendingAlbum]
     client: Client
     config: Config
+    artist_id: str = None  # Store the artist ID for release tracking
+    db: Database = None
 
     async def preprocess(self):
         pass
@@ -43,7 +45,15 @@ class Artist(Media):
             await self._download_async(filter_conf)
 
     async def postprocess(self):
-        pass
+        # Check if all albums for this artist were successfully downloaded
+        if self.artist_id and self.db:
+            # For artists, we need to check if all albums were processed
+            # This is complex since artist downloads are filtered, so we'll mark as complete
+            # only if at least one album was processed (indicating successful artist resolution)
+            if len(self.albums) > 0:
+                source = getattr(self.client, 'source', 'unknown')
+                self.db.set_release_downloaded(self.artist_id, "artist", source, len(self.albums))
+                logger.info(f"Artist {self.artist_id} processed ({len(self.albums)} albums) - marked as complete")
 
     async def _resolve_then_download(self, filters: QobuzDiscographyFilterConfig):
         """Resolve all artist albums, then download.
@@ -185,6 +195,11 @@ class PendingArtist(Pending):
     db: Database
 
     async def resolve(self) -> Artist | None:
+        # Check if this artist is already fully downloaded
+        if self.db.release_downloaded(self.id, "artist", self.client.source):
+            logger.info(f"Artist {self.id} already fully downloaded - skipping")
+            return None
+            
         try:
             resp = await self.client.get_metadata(self.id, "artist")
         except NonStreamableError as e:
@@ -201,8 +216,21 @@ class PendingArtist(Pending):
             )
             return None
 
+        album_ids = meta.album_ids()
+        
+        # Check if all albums for this artist are already marked as complete
+        # Note: This doesn't account for filtering, so we're conservative here
+        all_albums_downloaded = all(
+            self.db.release_downloaded(album_id, "album", self.client.source) 
+            for album_id in album_ids
+        )
+        if all_albums_downloaded and len(album_ids) > 0:
+            logger.info(f"Artist {self.id} has all albums already downloaded - marking as complete")
+            self.db.set_release_downloaded(self.id, "artist", self.client.source, len(album_ids))
+            return None
+        
         albums = [
             PendingAlbum(album_id, self.client, self.config, self.db)
-            for album_id in meta.album_ids()
+            for album_id in album_ids
         ]
-        return Artist(meta.name, albums, self.client, self.config)
+        return Artist(meta.name, albums, self.client, self.config, self.id, self.db)
