@@ -124,8 +124,9 @@ class TidalClient(Client):
                     item["lyrics"] = resp.get("lyrics") or ""
                 else:
                     item["lyrics"] = resp.get("subtitles") or resp.get("lyrics") or ""
-            except TypeError as e:
-                logger.warning(f"Failed to get lyrics for {item_id}: {e}")
+            except (TypeError, NonStreamableError) as e:
+                logger.debug(f"No lyrics available for track {item_id}: {e}")
+                item["lyrics"] = ""
 
         logger.debug(item)
         return item
@@ -339,34 +340,48 @@ class TidalClient(Client):
     # ---------- API Request Utilities ---------------
 
     async def _api_post(self, url, data, auth: aiohttp.BasicAuth | None = None) -> dict:
-        """Post to the Tidal API. Status not checked!
-
-        :param url:
-        :param data:
-        :param auth:
-        """
-        async with self.rate_limiter:
-            async with self.session.post(url, data=data, auth=auth) as resp:
-                return await resp.json()
+        """Post to the Tidal API with retry logic for rate limiting."""
+        return await self._request_with_retry(
+            lambda: self.session.post(url, data=data, auth=auth), 
+            f"POST {url}"
+        )
 
     async def _api_request(self, path: str, params=None, base: str = BASE) -> dict:
-        """Handle Tidal API requests.
-
-        :param path:
-        :type path: str
-        :param params:
-        :rtype: dict
-        """
+        """Handle Tidal API requests with retry logic for rate limiting."""
         if params is None:
             params = {}
 
         params["countryCode"] = self.config.country_code
         params["limit"] = 100
 
-        async with self.rate_limiter:
-            async with self.session.get(f"{base}/{path}", params=params) as resp:
-                if resp.status == 404:
-                    logger.warning("TIDAL: track not found", resp)
-                    raise NonStreamableError("TIDAL: Track not found")
-                resp.raise_for_status()
-                return await resp.json()
+        return await self._request_with_retry(
+            lambda: self.session.get(f"{base}/{path}", params=params), 
+            path
+        )
+
+    async def _request_with_retry(self, request_func, name: str, max_retries: int = 3) -> dict:
+        """Generic retry logic for API requests."""
+        for attempt in range(max_retries + 1):
+            async with self.rate_limiter:
+                async with await request_func() as resp:
+                    if resp.status == 404:
+                        raise NonStreamableError("TIDAL: Not found")
+                    
+                    if resp.status == 429:
+                        if attempt == max_retries:
+                            resp.raise_for_status()
+                        
+                        retry_after = resp.headers.get('Retry-After', '2')
+                        try:
+                            wait_time = min(int(retry_after), 60)
+                        except ValueError:
+                            wait_time = min(2 ** attempt, 60)
+                        
+                        logger.warning(f"Rate limited on {name}, waiting {wait_time}s")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    
+                    resp.raise_for_status()
+                    return await resp.json()
+        
+        raise Exception(f"Failed request after {max_retries} retries")
