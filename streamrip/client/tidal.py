@@ -9,7 +9,7 @@ from json import JSONDecodeError
 import aiohttp
 
 from ..config import Config
-from ..exceptions import NonStreamableError
+from ..exceptions import NonStreamableError, QualityNotAvailableError
 from .client import Client
 from .downloadable import TidalDownloadable
 
@@ -174,21 +174,20 @@ class TidalClient(Client):
             "playbackmode": "STREAM",
             "assetpresentation": "FULL",
         }
-        resp = await self._api_request(
-            f"tracks/{track_id}/playbackinfopostpaywall", params
-        )
-        logger.debug(resp)
+        
         try:
-            manifest = json.loads(base64.b64decode(resp["manifest"]).decode("utf-8"))
-        except KeyError:
-            raise Exception(resp["userMessage"])
-        except JSONDecodeError:
-            logger.warning(
-                f"Failed to get manifest for {track_id}. Retrying with lower quality."
+            resp = await self._api_request(
+                f"tracks/{track_id}/playbackinfopostpaywall", params
             )
-            return await self.get_downloadable(track_id, quality - 1)
+            manifest = json.loads(base64.b64decode(resp["manifest"]).decode("utf-8"))
+            
+        except (KeyError, JSONDecodeError) as e:
+            error_msg = resp.get("userMessage", str(e)) if 'resp' in locals() else str(e)
+            if isinstance(e, KeyError):
+                raise Exception(f"Missing manifest data: {error_msg}")
+            else:  # JSONDecodeError
+                raise Exception(f"Failed to decode manifest for track {track_id}: {error_msg}")
 
-        logger.debug(manifest)
         enc_key = manifest.get("keyId")
         if manifest.get("encryptionType") == "NONE":
             enc_key = None
@@ -369,6 +368,13 @@ class TidalClient(Client):
                 async with await request_func() as resp:
                     if resp.status == 404:
                         raise NonStreamableError("TIDAL: Not found")
+                    
+                    if resp.status == 401:
+                        # 401 on playbackinfopostpaywall often means quality not available with current subscription
+                        if "playbackinfopostpaywall" in name:
+                            raise QualityNotAvailableError("TIDAL: Quality not available with current subscription")
+                        else:
+                            raise NonStreamableError("TIDAL: Unauthorized")
                     
                     if resp.status == 429:
                         if attempt == max_retries:

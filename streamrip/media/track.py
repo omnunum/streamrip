@@ -7,7 +7,7 @@ from .. import converter
 from ..client import Client, Downloadable
 from ..config import Config
 from ..db import Database
-from ..exceptions import NonStreamableError
+from ..exceptions import NonStreamableError, QualityNotAvailableError
 from ..filepath_utils import clean_filename
 from ..metadata import AlbumMetadata, Covers, TrackMetadata, tag_file
 from ..progress import add_title, get_progress_callback, remove_title
@@ -146,13 +146,28 @@ class PendingTrack(Pending):
             self.db.set_failed(source, "track", self.id)
             return None
 
-        quality = self.config.session.get_source(source).quality
-        try:
-            downloadable = await self.client.get_downloadable(self.id, quality)
-        except NonStreamableError as e:
-            logger.error(
-                f"Error getting downloadable data for track {meta.tracknumber} '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}]: {e}"
-            )
+        source_config = self.config.session.get_source(source)
+        quality = source_config.quality
+        
+        # Try requested quality first, then fallback if enabled
+        while quality >= 0:
+            try:
+                downloadable = await self.client.get_downloadable(self.id, quality)
+                break
+            except QualityNotAvailableError:
+                if getattr(source_config, 'lower_quality_if_not_available', False) and quality > 0:
+                    logger.warning(f"Quality {quality} failed for '{meta.title}' by {meta.artist} (Album: {meta.album.album}), trying {quality - 1}")
+                    quality -= 1
+                    continue
+                raise NonStreamableError("Requested quality not available")
+            except NonStreamableError as e:
+                logger.error(
+                    f"Error getting downloadable data for track {meta.tracknumber} '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}]: {e}"
+                )
+                return None
+        
+        if quality < 0:
+            logger.error(f"No available quality found for track {meta.tracknumber} '{meta.title}' by {meta.artist}")
             return None
 
         # Update container format based on actual downloadable format

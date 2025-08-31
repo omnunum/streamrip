@@ -66,5 +66,9 @@ class NonStreamableError(Exception):
         return " ".join(base_msg)
 
 
+class QualityNotAvailableError(Exception):
+    """Raised when requested quality is not available but lower qualities might be."""
+
+
 class ConversionError(Exception):
     """ConversionError."""
