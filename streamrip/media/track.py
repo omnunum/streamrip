@@ -141,8 +141,15 @@ class PendingTrack(Pending):
             logger.error(f"Error building track metadata for {self.id}: {e}")
             return None
 
-        if meta is None:
-            logger.error(f"Track {self.id} not available for stream on {source}")
+        # Check if track is streamable
+        if not meta.streamable:
+            logger.error(f"Track '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}] not available for stream on {source}")
+            self.db.set_failed(source, "track", self.id)
+            return None
+
+        # Check if track is streamable
+        if not meta.streamable:
+            logger.error(f"Track '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}] not available for stream on {source}")
             self.db.set_failed(source, "track", self.id)
             return None
 
@@ -234,11 +241,10 @@ class PendingSingle(Pending):
             logger.error(f"Error building track metadata for track {id=}: {e}")
             return None
 
-        if meta is None:
+        # Check if track is streamable
+        if not meta.streamable:
+            logger.error(f"Track '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}] not available for stream on {self.client.source}")
             self.db.set_failed(self.client.source, "track", self.id)
-            logger.error(
-                f"Cannot stream track (tm) ({self.id}) on {self.client.source}",
-            )
             return None
 
         config = self.config.session

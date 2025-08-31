@@ -60,10 +60,9 @@ class PendingPlaylistTrack(Pending):
             self.db.set_failed(self.client.source, "track", self.id)
             return None
         meta = TrackMetadata.from_resp(album, self.client.source, resp)
-        if meta is None:
-            logger.error(
-                f"Track ({self.id}) not available for stream on {self.client.source}",
-            )
+        # Check if track is streamable
+        if not meta.streamable:
+            logger.error(f"Track '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}] not available for stream on {self.client.source}")
             self.db.set_failed(self.client.source, "track", self.id)
             return None
 

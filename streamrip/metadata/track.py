@@ -46,15 +46,13 @@ class TrackMetadata:
     # New standard tags
     track_artist_credit: str | None = None  # Different from track artist
     media_type: str | None = None  # "WEB" for streaming sources
+    streamable: bool = True  # Whether the track is available for streaming
 
     @classmethod
-    def from_qobuz(cls, album: AlbumMetadata, resp: dict) -> TrackMetadata | None:
+    def from_qobuz(cls, album: AlbumMetadata, resp: dict) -> TrackMetadata:
         title = typed(resp["title"].strip(), str)
         isrc = typed(resp["isrc"], str)
         streamable = typed(resp.get("streamable", False), bool)
-
-        if not streamable:
-            return None
 
         version = typed(resp.get("version"), str | None)
         work = typed(resp.get("work"), str | None)
@@ -100,10 +98,11 @@ class TrackMetadata:
             author=None,
             artists=artists,
             isrc=isrc,
+            streamable=streamable,
         )
 
     @classmethod
-    def from_deezer(cls, album: AlbumMetadata, resp) -> TrackMetadata | None:
+    def from_deezer(cls, album: AlbumMetadata, resp) -> TrackMetadata:
         track_id = str(resp["id"])
         # Get first artist ID from contributors list
         artist_id = str(resp["contributors"][0]["id"]) if resp["contributors"] else None
@@ -178,6 +177,7 @@ class TrackMetadata:
             replaygain_track_gain=replaygain_track_gain,
             track_artist_credit=track_artist_credit,
             media_type=media_type,
+            streamable=True,  # Deezer tracks are streamable by default
         )
 
     @classmethod
@@ -215,6 +215,7 @@ class TrackMetadata:
             author=None,
             artists=artists,
             isrc=isrc,
+            streamable=True,  # SoundCloud tracks are streamable by default
         )
 
     @classmethod
@@ -242,6 +243,9 @@ class TrackMetadata:
             artists = [artist]  # Single artist list
             # Get artist ID from single artist object
             artist_id = str(track["artist"]["id"])
+
+        # Check if track is streamable
+        streamable = track.get("allowStreaming", True)
 
         lyrics = track.get("lyrics", "")
         
@@ -307,6 +311,7 @@ class TrackMetadata:
             bpm=bpm,
             replaygain_track_gain=replaygain_track_gain,
             media_type=media_type,
+            streamable=streamable,
         )
 
     @classmethod

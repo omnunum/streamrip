@@ -391,6 +391,7 @@ class TidalClient(Client):
                         continue
                     
                     resp.raise_for_status()
-                    return await resp.json()
+                    json_data = await resp.json()
+                    return json_data
         
         raise Exception(f"Failed request after {max_retries} retries")

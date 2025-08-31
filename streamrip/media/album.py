@@ -97,10 +97,9 @@ class PendingAlbum(Pending):
             logger.error(f"Error building album metadata for {id=}: {e}")
             return None
 
-        if meta is None:
-            logger.error(
-                f"Album {self.id} not available to stream on {self.client.source}",
-            )
+        # Check if album is streamable
+        if not meta.streamable:
+            logger.error(f"Album '{meta.album}' by {meta.albumartist} [{self.id}] not available for stream on {self.client.source}")
             return None
 
         tracklist = get_album_track_ids(self.client.source, resp)

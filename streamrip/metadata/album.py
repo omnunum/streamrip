@@ -62,6 +62,7 @@ class AlbumMetadata:
     album_artist_credit: str | None = None  # Different from album artist
     originaldate: str | None = None  # Vorbis standard name
     media_type: str | None = None  # "WEB" for streaming sources
+    streamable: bool = True  # Whether the album is available for streaming
 
     def get_genres(self) -> str:
         return ", ".join(self.genre)
@@ -179,10 +180,11 @@ class AlbumMetadata:
             lyrics=None,
             purchase_date=None,
             tracktotal=tracktotal,
+            streamable=True,
         )
 
     @classmethod
-    def from_deezer(cls, resp: dict) -> AlbumMetadata | None:
+    def from_deezer(cls, resp: dict) -> AlbumMetadata:
         album = resp.get("title", "Unknown Album")
         tracktotal = typed(resp.get("track_total", 0) or resp.get("nb_tracks", 0), int)
         disctotal = typed(resp["tracks"][-1]["disk_number"], int)
@@ -261,6 +263,7 @@ class AlbumMetadata:
             album_artist_credit=album_artist_credit,
             originaldate=originaldate,
             media_type=media_type,
+            streamable=True,
         )
 
     @classmethod
@@ -322,23 +325,18 @@ class AlbumMetadata:
             lyrics=None,
             purchase_date=None,
             tracktotal=tracktotal,
+            streamable=True,
         )
 
     @classmethod
-    def from_tidal(cls, resp) -> AlbumMetadata | None:
+    def from_tidal(cls, resp) -> AlbumMetadata:
         """
-
         Args:
         ----
             resp: API response containing album metadata.
-
-        Returns: AlbumMetadata instance if the album is streamable, otherwise None.
-
-
+        Returns: AlbumMetadata instance with streamable attribute set.
         """
-        streamable = resp.get("allowStreaming", False)
-        if not streamable:
-            return None
+        streamable = resp.get("allowStreaming", True)
 
         item_id = str(resp["id"])
         album = typed(resp.get("title", "Unknown Album"), str)
@@ -452,14 +450,13 @@ class AlbumMetadata:
             barcode=barcode,
             releasetype=releasetype,
             media_type=media_type,
+            streamable=streamable,
         )
 
     @classmethod
-    def from_tidal_playlist_track_resp(cls, resp: dict) -> AlbumMetadata | None:
+    def from_tidal_playlist_track_resp(cls, resp: dict) -> AlbumMetadata:
         album_resp = resp["album"]
-        streamable = resp.get("allowStreaming", False)
-        if not streamable:
-            return None
+        streamable = resp.get("allowStreaming", True)
 
         item_id = str(resp["id"])
         album = typed(album_resp.get("title", "Unknown Album"), str)
@@ -576,10 +573,11 @@ class AlbumMetadata:
             source_artist_id=artist_id,
             releasetype=releasetype,
             media_type=media_type,
+            streamable=streamable,
         )
 
     @classmethod
-    def from_incomplete_deezer_track_resp(cls, resp: dict) -> AlbumMetadata | None:
+    def from_incomplete_deezer_track_resp(cls, resp: dict) -> AlbumMetadata:
         album_resp = resp["album"]
         album_id = album_resp["id"]
         album = album_resp["title"]
@@ -618,10 +616,11 @@ class AlbumMetadata:
             lyrics=None,
             purchase_date=None,
             tracktotal=1,
+            streamable=True,
         )
 
     @classmethod
-    def from_track_resp(cls, resp: dict, source: str) -> AlbumMetadata | None:
+    def from_track_resp(cls, resp: dict, source: str) -> AlbumMetadata:
         if source == "qobuz":
             return cls.from_qobuz(resp["album"])
         if source == "tidal":
@@ -635,7 +634,7 @@ class AlbumMetadata:
         raise Exception("Invalid source")
 
     @classmethod
-    def from_album_resp(cls, resp: dict, source: str) -> AlbumMetadata | None:
+    def from_album_resp(cls, resp: dict, source: str) -> AlbumMetadata:
         if source == "qobuz":
             return cls.from_qobuz(resp)
         if source == "tidal":
