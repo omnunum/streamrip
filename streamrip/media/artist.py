@@ -10,7 +10,7 @@ from ..db import Database
 from ..exceptions import NonStreamableError
 from ..metadata import ArtistMetadata
 from .album import Album, PendingAlbum
-from .media import Media, Pending
+from .media import CollectionMedia, Pending
 
 logger = logging.getLogger("streamrip")
 
@@ -21,13 +21,15 @@ RESOLVE_CHUNK_SIZE = 10
 
 
 @dataclass(slots=True)
-class Artist(Media):
+class Artist(CollectionMedia):
     """Represents a list of albums. Used by Artist and Label classes."""
 
     name: str
     albums: list[PendingAlbum]
     client: Client
     config: Config
+    artist_id: str = None  # Store the artist ID for release tracking
+    db: Database = None
 
     async def preprocess(self):
         pass
@@ -43,7 +45,7 @@ class Artist(Media):
             await self._download_async(filter_conf)
 
     async def postprocess(self):
-        pass
+        self._mark_collection_complete(self.artist_id, "artist")
 
     async def _resolve_then_download(self, filters: QobuzDiscographyFilterConfig):
         """Resolve all artist albums, then download.
@@ -201,8 +203,14 @@ class PendingArtist(Pending):
             )
             return None
 
+        album_ids = meta.album_ids()
+        
+        # Check if all albums are downloaded and log appropriately  
+        if self.filter_and_log_albums(album_ids, self.db, self.client.source, meta.name, self.id):
+            return None
+        
         albums = [
             PendingAlbum(album_id, self.client, self.config, self.db)
-            for album_id in meta.album_ids()
+            for album_id in album_ids
         ]
-        return Artist(meta.name, albums, self.client, self.config)
+        return Artist(meta.name, albums, self.client, self.config, self.id, self.db)

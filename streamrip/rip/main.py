@@ -68,7 +68,13 @@ class Main:
         else:
             failed_downloads_db = db.Dummy()
 
-        self.database = db.Database(downloads_db, failed_downloads_db)
+        # Use same path as downloads for releases table
+        if c.downloads_enabled:
+            releases_db = db.DownloadedReleases(c.downloads_path.replace('.db', '_releases.db'))
+        else:
+            releases_db = db.Dummy()
+
+        self.database = db.Database(downloads_db, failed_downloads_db, releases_db)
 
     async def add(self, url: str):
         """Add url as a pending item.

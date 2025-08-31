@@ -9,19 +9,21 @@ from ..config import Config
 from ..db import Database
 from ..metadata import LabelMetadata
 from .album import PendingAlbum
-from .media import Media, Pending
+from .media import CollectionMedia, Pending
 
 logger = logging.getLogger("streamrip")
 
 
 @dataclass(slots=True)
-class Label(Media):
+class Label(CollectionMedia):
     """Represents a list of albums. Used by Artist and Label classes."""
 
     name: str
     albums: list[PendingAlbum]
     client: Client
     config: Config
+    label_id: str = None  # Store the label ID for release tracking
+    db: Database = None
 
     async def preprocess(self):
         pass
@@ -46,7 +48,7 @@ class Label(Media):
             await asyncio.gather(*batch)
 
     async def postprocess(self):
-        pass
+        self._mark_collection_complete(self.label_id, "label")
 
     @staticmethod
     def batch(iterable, n=1):
@@ -73,8 +75,14 @@ class PendingLabel(Pending):
         except Exception as e:
             logger.error(f"Error resolving Label: {e}")
             return None
+        album_ids = meta.album_ids()
+        
+        # Check if all albums are downloaded and log appropriately
+        if self.filter_and_log_albums(album_ids, self.db, self.client.source, meta.name, self.id):
+            return None
+        
         albums = [
             PendingAlbum(album_id, self.client, self.config, self.db)
-            for album_id in meta.album_ids()
+            for album_id in album_ids
         ]
-        return Label(meta.name, albums, self.client, self.config)
+        return Label(meta.name, albums, self.client, self.config, self.id, self.db)

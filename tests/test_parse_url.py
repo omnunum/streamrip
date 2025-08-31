@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 from streamrip.rip.parse_url import (
     DeezerDynamicURL,
+    DeezerProfileURL,
     GenericURL,
     SoundcloudURL,
     parse_url,
@@ -148,6 +149,65 @@ class TestDeezerDynamicURL(unittest.TestCase):
 
         # Run the coroutine
         asyncio.run(run_test())
+
+    def test_deezer_profile_url_artists(self):
+        """Test that Deezer profile artist favorites URLs are matched correctly."""
+        url = "https://www.deezer.com/en/profile/4606587402/artists"
+        result = parse_url(url)
+        
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, DeezerProfileURL)
+        self.assertEqual(result.source, "deezer")
+        self.assertEqual(result.match.group(1), "4606587402")
+        self.assertEqual(result.match.group(2), "artists")
+
+    def test_deezer_profile_url_albums(self):
+        """Test that Deezer profile album favorites URLs are matched correctly."""
+        url = "https://www.deezer.com/fr/profile/123456789/albums"
+        result = parse_url(url)
+        
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, DeezerProfileURL)
+        self.assertEqual(result.source, "deezer")
+        self.assertEqual(result.match.group(1), "123456789")
+        self.assertEqual(result.match.group(2), "albums")
+
+    def test_deezer_profile_url_tracks(self):
+        """Test that Deezer profile track favorites URLs are matched correctly."""
+        url = "https://www.deezer.com/de/profile/987654321/tracks"
+        result = parse_url(url)
+        
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, DeezerProfileURL)
+        self.assertEqual(result.source, "deezer")
+        self.assertEqual(result.match.group(1), "987654321")
+        self.assertEqual(result.match.group(2), "tracks")
+
+    def test_deezer_profile_url_playlists(self):
+        """Test that Deezer profile playlist URLs are matched correctly."""
+        url = "https://www.deezer.com/es/profile/555666777/playlists"
+        result = parse_url(url)
+        
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, DeezerProfileURL)
+        self.assertEqual(result.source, "deezer")
+        self.assertEqual(result.match.group(1), "555666777")
+        self.assertEqual(result.match.group(2), "playlists")
+
+    def test_deezer_profile_invalid_urls(self):
+        """Test that invalid Deezer profile URLs are not matched."""
+        invalid_urls = [
+            "https://www.deezer.com/profile/4606587402/artists",  # Missing language code
+            "https://www.deezer.com/en/profile/not-a-number/artists",  # Non-numeric user ID
+            "https://www.deezer.com/en/profile/4606587402/invalid",  # Invalid media type
+            "https://www.deezer.com/en/profile/4606587402/",  # Missing media type
+            "https://www.deezer.com/en/user/4606587402/artists",  # 'user' instead of 'profile'
+        ]
+        
+        for url in invalid_urls:
+            result = parse_url(url)
+            if result is not None and isinstance(result, DeezerProfileURL):
+                self.fail(f"URL should not be matched by DeezerProfileURL: {url}")
 
 
 if __name__ == "__main__":

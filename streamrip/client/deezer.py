@@ -153,6 +153,19 @@ class DeezerClient(Client):
         artist["albums"] = albums["data"]
         return artist
 
+    async def get_user_favorites(self, user_id: str, media_type: str) -> dict:
+        """Get user favorites from Deezer API."""
+        if media_type == "tracks":
+            return await self._api_call(self.client.api.get_user_tracks, user_id, limit=-1)
+        elif media_type == "albums":
+            return await self._api_call(self.client.api.get_user_albums, user_id, limit=-1)
+        elif media_type == "artists":
+            return await self._api_call(self.client.api.get_user_artists, user_id, limit=-1)
+        elif media_type == "playlists":
+            return await self._api_call(self.client.api.get_user_playlists, user_id, limit=-1)
+        else:
+            raise Exception(f"Media type {media_type} not supported for user favorites")
+
     async def search(self, media_type: str, query: str, limit: int = 200) -> list[dict]:
         # TODO: use limit parameter
         if media_type == "featured":

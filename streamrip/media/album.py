@@ -27,6 +27,7 @@ class Album(Media):
     folder: str
     db: Database
 
+
     async def preprocess(self):
         progress.add_title(self.meta.album)
 
@@ -50,6 +51,23 @@ class Album(Media):
 
     async def postprocess(self):
         progress.remove_title(self.meta.album)
+        
+        # Check if all tracks in album were successfully downloaded
+        track_ids = [track.id for track in self.tracks]
+        downloaded_tracks = sum(1 for track_id in track_ids if self.db.downloaded(track_id))
+        total_tracks = len(track_ids)
+        
+        # Only mark complete if ALL tracks succeeded
+        if downloaded_tracks == total_tracks and total_tracks > 0:
+            # Get album ID from meta or first track's album info
+            album_id = getattr(self.meta, 'id', None)
+            if album_id:
+                # Get source from tracks' client
+                source = getattr(self.tracks[0].client, 'source', 'unknown') if self.tracks else 'unknown'
+                self.db.set_release_downloaded(album_id, "album", source, total_tracks)
+                logger.info(f"Album {album_id} fully downloaded ({total_tracks} tracks) - marked as complete")
+            else:
+                logger.debug(f"Album completed but no ID available for tracking")
 
 
 @dataclass(slots=True)
@@ -60,6 +78,11 @@ class PendingAlbum(Pending):
     db: Database
 
     async def resolve(self) -> Album | None:
+        # Check if this album is already fully downloaded
+        if self.db.release_downloaded(self.id, "album", self.client.source):
+            logger.info(f"Album {self.id} already fully downloaded - skipping")
+            return None
+            
         try:
             resp = await self.client.get_metadata(self.id, "album")
         except NonStreamableError as e:
@@ -81,6 +104,14 @@ class PendingAlbum(Pending):
             return None
 
         tracklist = get_album_track_ids(self.client.source, resp)
+        
+        # Check if all tracks are already downloaded (edge case for pre-optimization downloads)
+        all_tracks_downloaded = all(self.db.downloaded(track_id) for track_id in tracklist)
+        if all_tracks_downloaded and len(tracklist) > 0:
+            logger.info(f"Album {self.id} has all tracks already downloaded - marking as complete")
+            self.db.set_release_downloaded(self.id, "album", self.client.source, len(tracklist))
+            return None
+        
         folder = self.config.session.downloads.folder
         album_folder = self._album_folder(folder, meta)
         os.makedirs(album_folder, exist_ok=True)
