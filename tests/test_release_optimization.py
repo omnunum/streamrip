@@ -1,6 +1,5 @@
 """Tests for release-level skip optimization."""
 
-import asyncio
 import tempfile
 import os
 from unittest.mock import Mock, AsyncMock

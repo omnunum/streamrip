@@ -27,6 +27,7 @@ class Album(Media):
     folder: str
     db: Database
 
+
     async def preprocess(self):
         progress.add_title(self.meta.album)
 
@@ -61,7 +62,7 @@ class Album(Media):
             # Get album ID from meta or first track's album info
             album_id = getattr(self.meta, 'id', None)
             if album_id:
-                # Determine client source - get it from the first track's client or from context
+                # Get source from tracks' client
                 source = getattr(self.tracks[0].client, 'source', 'unknown') if self.tracks else 'unknown'
                 self.db.set_release_downloaded(album_id, "album", source, total_tracks)
                 logger.info(f"Album {album_id} fully downloaded ({total_tracks} tracks) - marked as complete")

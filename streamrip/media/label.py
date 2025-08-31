@@ -9,13 +9,13 @@ from ..config import Config
 from ..db import Database
 from ..metadata import LabelMetadata
 from .album import PendingAlbum
-from .media import Media, Pending
+from .media import CollectionMedia, Pending
 
 logger = logging.getLogger("streamrip")
 
 
 @dataclass(slots=True)
-class Label(Media):
+class Label(CollectionMedia):
     """Represents a list of albums. Used by Artist and Label classes."""
 
     name: str
@@ -48,13 +48,7 @@ class Label(Media):
             await asyncio.gather(*batch)
 
     async def postprocess(self):
-        # Check if all albums for this label were successfully processed
-        if self.label_id and self.db:
-            # Mark label as complete if at least one album was processed
-            if len(self.albums) > 0:
-                source = getattr(self.client, 'source', 'unknown')
-                self.db.set_release_downloaded(self.label_id, "label", source, len(self.albums))
-                logger.info(f"Label {self.label_id} processed ({len(self.albums)} albums) - marked as complete")
+        self._mark_collection_complete(self.label_id, "label")
 
     @staticmethod
     def batch(iterable, n=1):
@@ -83,22 +77,9 @@ class PendingLabel(Pending):
             return None
         album_ids = meta.album_ids()
         
-        # Check if all albums are already downloaded - if so, log summary instead of per-album
-        all_albums_downloaded = all(
-            self.db.release_downloaded(album_id, "album", self.client.source) 
-            for album_id in album_ids
-        )
-        if all_albums_downloaded and len(album_ids) > 0:
-            logger.info(f"Label {meta.name} ({self.id}) - all {len(album_ids)} albums already downloaded")
+        # Check if all albums are downloaded and log appropriately
+        if self.filter_and_log_albums(album_ids, self.db, self.client.source, meta.name, self.id):
             return None
-        
-        # Log if we have some new albums to process
-        new_albums = [
-            album_id for album_id in album_ids
-            if not self.db.release_downloaded(album_id, "album", self.client.source)
-        ]
-        if len(new_albums) > 0:
-            logger.info(f"Label {meta.name} ({self.id}) - found {len(new_albums)} new albums to download")
         
         albums = [
             PendingAlbum(album_id, self.client, self.config, self.db)

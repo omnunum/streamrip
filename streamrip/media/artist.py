@@ -10,7 +10,7 @@ from ..db import Database
 from ..exceptions import NonStreamableError
 from ..metadata import ArtistMetadata
 from .album import Album, PendingAlbum
-from .media import Media, Pending
+from .media import CollectionMedia, Pending
 
 logger = logging.getLogger("streamrip")
 
@@ -21,7 +21,7 @@ RESOLVE_CHUNK_SIZE = 10
 
 
 @dataclass(slots=True)
-class Artist(Media):
+class Artist(CollectionMedia):
     """Represents a list of albums. Used by Artist and Label classes."""
 
     name: str
@@ -45,15 +45,7 @@ class Artist(Media):
             await self._download_async(filter_conf)
 
     async def postprocess(self):
-        # Check if all albums for this artist were successfully downloaded
-        if self.artist_id and self.db:
-            # For artists, we need to check if all albums were processed
-            # This is complex since artist downloads are filtered, so we'll mark as complete
-            # only if at least one album was processed (indicating successful artist resolution)
-            if len(self.albums) > 0:
-                source = getattr(self.client, 'source', 'unknown')
-                self.db.set_release_downloaded(self.artist_id, "artist", source, len(self.albums))
-                logger.info(f"Artist {self.artist_id} processed ({len(self.albums)} albums) - marked as complete")
+        self._mark_collection_complete(self.artist_id, "artist")
 
     async def _resolve_then_download(self, filters: QobuzDiscographyFilterConfig):
         """Resolve all artist albums, then download.
@@ -213,22 +205,9 @@ class PendingArtist(Pending):
 
         album_ids = meta.album_ids()
         
-        # Check if all albums are already downloaded - if so, log summary instead of per-album
-        all_albums_downloaded = all(
-            self.db.release_downloaded(album_id, "album", self.client.source) 
-            for album_id in album_ids
-        )
-        if all_albums_downloaded and len(album_ids) > 0:
-            logger.info(f"Artist {meta.name} ({self.id}) - all {len(album_ids)} albums already downloaded")
+        # Check if all albums are downloaded and log appropriately  
+        if self.filter_and_log_albums(album_ids, self.db, self.client.source, meta.name, self.id):
             return None
-        
-        # Log if we have some new albums to process
-        new_albums = [
-            album_id for album_id in album_ids
-            if not self.db.release_downloaded(album_id, "album", self.client.source)
-        ]
-        if len(new_albums) > 0:
-            logger.info(f"Artist {meta.name} ({self.id}) - found {len(new_albums)} new albums to download")
         
         albums = [
             PendingAlbum(album_id, self.client, self.config, self.db)
