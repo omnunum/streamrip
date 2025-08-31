@@ -130,6 +130,19 @@ class TidalClient(Client):
         logger.debug(item)
         return item
 
+    async def get_user_favorites(self, user_id: str, media_type: str) -> dict:
+        """Get user favorites from Tidal API."""
+        if media_type == "tracks":
+            return await self._api_request(f"users/{user_id}/favorites/tracks")
+        elif media_type == "albums":
+            return await self._api_request(f"users/{user_id}/favorites/albums")
+        elif media_type == "artists":
+            return await self._api_request(f"users/{user_id}/favorites/artists")
+        elif media_type == "playlists":
+            return await self._api_request(f"users/{user_id}/playlists")
+        else:
+            raise ValueError(f"Unsupported media type: {media_type}")
+
     async def search(self, media_type: str, query: str, limit: int = 100) -> list[dict]:
         """Search for a query.
 

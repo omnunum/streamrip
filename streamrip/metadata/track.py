@@ -235,11 +235,28 @@ class TrackMetadata:
             all_artist_names = [a["name"] for a in tidal_artists]
             artist = all_artist_names[0]  # Primary artist (first one)
             artists = all_artist_names  # All artists
+            # Get first artist ID for source_artist_id
+            artist_id = str(tidal_artists[0]["id"])
         else:
             artist = track["artist"]["name"]
             artists = [artist]  # Single artist list
+            # Get artist ID from single artist object
+            artist_id = str(track["artist"]["id"])
 
         lyrics = track.get("lyrics", "")
+        
+        # Extract additional Tidal metadata
+        bpm = track.get("bpm")
+        if bpm == 0:
+            bpm = None
+        
+        # Convert replayGain to standard format
+        replaygain_track_gain = None
+        if "replayGain" in track and track["replayGain"] is not None:
+            replaygain_track_gain = f"{track['replayGain']:+.2f} dB"
+        
+        # Standard streaming source metadata
+        media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
 
         quality_map: dict[str, int] = {
             "LOW": 0,
@@ -283,6 +300,13 @@ class TrackMetadata:
             artists=artists,
             isrc=isrc,
             lyrics=lyrics,
+            source_platform=album.source_platform,
+            source_track_id=item_id,
+            source_album_id=album.source_album_id,
+            source_artist_id=artist_id,
+            bpm=bpm,
+            replaygain_track_gain=replaygain_track_gain,
+            media_type=media_type,
         )
 
     @classmethod
