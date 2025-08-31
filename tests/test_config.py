@@ -182,6 +182,7 @@ def test_sample_config_data_fields(sample_config_data):
             token_expiry="tokenexpiry",
             quality=3,
             download_videos=True,
+            fetch_lyrics=True,
         ),
         deezer=DeezerConfig(
             arl="testarl",

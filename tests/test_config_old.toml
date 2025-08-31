@@ -24,7 +24,8 @@ secrets = ['old_secret1', 'old_secret2']
 quality = 3
 # This will download videos included in Video Albums.
 download_videos = true
-
+# Fetch lyrics from Tidal API. Disabling this reduces API calls and helps with rate limiting.
+fetch_lyrics = true
 # Do not change any of the fields below
 user_id = "old_userid"
 country_code = "old_countrycode"

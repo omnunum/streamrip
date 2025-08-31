@@ -111,21 +111,24 @@ class TidalClient(Client):
             item["albums"] = album_resp["items"]
             item["albums"].extend(ep_resp["items"])
         elif media_type == "track":
-            try:
-                resp = await self._api_request(
-                    f"tracks/{item_id!s}/lyrics", base="https://listen.tidal.com/v1"
-                )
+            if self.config.fetch_lyrics:
+                try:
+                    resp = await self._api_request(
+                        f"tracks/{item_id!s}/lyrics", base="https://listen.tidal.com/v1"
+                    )
 
-                # Use unsynced lyrics for MP3, synced for others (FLAC, OPUS, etc)
-                if (
-                    self.global_config.session.conversion.enabled
-                    and self.global_config.session.conversion.codec.upper() == "MP3"
-                ):
-                    item["lyrics"] = resp.get("lyrics") or ""
-                else:
-                    item["lyrics"] = resp.get("subtitles") or resp.get("lyrics") or ""
-            except (TypeError, NonStreamableError) as e:
-                logger.debug(f"No lyrics available for track {item_id}: {e}")
+                    # Use unsynced lyrics for MP3, synced for others (FLAC, OPUS, etc)
+                    if (
+                        self.global_config.session.conversion.enabled
+                        and self.global_config.session.conversion.codec.upper() == "MP3"
+                    ):
+                        item["lyrics"] = resp.get("lyrics") or ""
+                    else:
+                        item["lyrics"] = resp.get("subtitles") or resp.get("lyrics") or ""
+                except (TypeError, NonStreamableError) as e:
+                    logger.debug(f"No lyrics available for track {item_id}: {e}")
+                    item["lyrics"] = ""
+            else:
                 item["lyrics"] = ""
 
         logger.debug(item)
