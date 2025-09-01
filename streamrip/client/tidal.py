@@ -9,7 +9,7 @@ from json import JSONDecodeError
 import aiohttp
 
 from ..config import Config
-from ..exceptions import NonStreamableError, QualityNotAvailableError
+from ..exceptions import NonStreamableError
 from .client import Client
 from .downloadable import TidalDownloadable
 
@@ -368,11 +368,7 @@ class TidalClient(Client):
                         raise NonStreamableError("TIDAL: Not found")
                     
                     if resp.status == 401:
-                        # 401 on playbackinfopostpaywall often means quality not available with current subscription
-                        if "playbackinfopostpaywall" in name:
-                            raise QualityNotAvailableError("TIDAL: Quality not available with current subscription")
-                        else:
-                            raise NonStreamableError("TIDAL: Unauthorized")
+                        raise NonStreamableError("TIDAL: Unauthorized - may be due to geo restrictions or quality not available with current subscription")
                     
                     if resp.status == 429:
                         if attempt == max_retries:

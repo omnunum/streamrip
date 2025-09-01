@@ -7,7 +7,7 @@ from .. import converter
 from ..client import Client, Downloadable
 from ..config import Config
 from ..db import Database
-from ..exceptions import NonStreamableError, QualityNotAvailableError
+from ..exceptions import NonStreamableError
 from ..filepath_utils import clean_filename
 from ..metadata import AlbumMetadata, Covers, TrackMetadata, tag_file
 from ..progress import add_title, get_progress_callback, remove_title
@@ -166,7 +166,7 @@ class PendingTrack(Pending):
         try:
             downloadable = await self.client.get_downloadable(self.id, quality)
 
-        except (QualityNotAvailableError, NonStreamableError) as e:
+        except NonStreamableError as e:
             logger.error(
                 f"Error getting downloadable data for track {meta.tracknumber} '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}]: {e}"
             )
