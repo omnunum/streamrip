@@ -30,6 +30,9 @@ YOUTUBE_URL_REGEX = re.compile(r"https://www\.youtube\.com/watch\?v=[-\w]+")
 DEEZER_PROFILE_URL_REGEX = re.compile(
     r"https://www\.deezer\.com/[a-z]{2}/profile/(\d+)/(artists|albums|tracks|playlists)",
 )
+TIDAL_COLLECTION_URL_REGEX = re.compile(
+    r"https://tidal\.com/my-collection/(artists|albums|tracks)",
+)
 
 
 class URL(ABC):
@@ -234,6 +237,23 @@ class DeezerProfileURL(URL):
         return PendingUserFavorites(user_id, media_type, client, config, db)
 
 
+class TidalCollectionURL(URL):
+    @classmethod
+    def from_str(cls, url: str) -> URL | None:
+        match = TIDAL_COLLECTION_URL_REGEX.match(url)
+        if match is None:
+            return None
+        return cls(match, "tidal")
+
+    async def into_pending(self, client: Client, config: Config, db: Database) -> Pending:
+        media_type = self.match.groups()[0]
+        # Use the authenticated user's ID from the Tidal client
+        user_id = getattr(client.config, 'user_id', None)
+        if not user_id:
+            raise Exception("Tidal user not authenticated - cannot access collection")
+        return PendingUserFavorites(str(user_id), media_type, client, config, db)
+
+
 def parse_url(url: str) -> URL | None:
     """Return a URL type given a url string.
 
@@ -250,6 +270,7 @@ def parse_url(url: str) -> URL | None:
         SoundcloudURL.from_str(url),
         DeezerDynamicURL.from_str(url),
         DeezerProfileURL.from_str(url),
+        TidalCollectionURL.from_str(url),
         # TODO: the rest of the url types
     ]
     return next((u for u in parsed_urls if u is not None), None)

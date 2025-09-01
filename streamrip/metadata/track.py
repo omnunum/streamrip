@@ -15,6 +15,7 @@ class TrackInfo:
     id: str
     quality: int
 
+    streamable: bool = True  # Whether the track is available for streaming
     bit_depth: Optional[int] = None
     explicit: bool = False
     sampling_rate: Optional[int | float] = None
@@ -48,13 +49,10 @@ class TrackMetadata:
     media_type: str | None = None  # "WEB" for streaming sources
 
     @classmethod
-    def from_qobuz(cls, album: AlbumMetadata, resp: dict) -> TrackMetadata | None:
+    def from_qobuz(cls, album: AlbumMetadata, resp: dict) -> TrackMetadata:
         title = typed(resp["title"].strip(), str)
         isrc = typed(resp["isrc"], str)
         streamable = typed(resp.get("streamable", False), bool)
-
-        if not streamable:
-            return None
 
         version = typed(resp.get("version"), str | None)
         work = typed(resp.get("work"), str | None)
@@ -84,6 +82,7 @@ class TrackMetadata:
         info = TrackInfo(
             id=track_id,
             quality=album.info.quality,
+            streamable=streamable,
             bit_depth=bit_depth,
             explicit=explicit,
             sampling_rate=sampling_rate,
@@ -102,12 +101,27 @@ class TrackMetadata:
             isrc=isrc,
         )
 
-    @classmethod
-    def from_deezer(cls, album: AlbumMetadata, resp) -> TrackMetadata | None:
+    @classmethod  
+    def from_deezer(cls, album: AlbumMetadata, resp) -> TrackMetadata:
         track_id = str(resp["id"])
         # Get first artist ID from contributors list
         artist_id = str(resp["contributors"][0]["id"]) if resp["contributors"] else None
         isrc = typed(resp["isrc"], str)
+        
+        # Process Deezer qualities into standardized format
+        # resp.qualities is already an array: [MP3_128 or None, MP3_320 or None, FLAC or None]
+        qualities = resp.get("qualities", [None, None, None])
+        
+        # Find highest available quality (max index where quality is not None)
+        available_indices = [i for i, q in enumerate(qualities) if q is not None]
+        available_quality = max(available_indices) if available_indices else None
+        
+        # Check if track is streamable based on readable field and available qualities
+        streamable = resp.get("readable", True) and available_quality is not None
+        
+        # Set default if no quality found
+        if available_quality is None:
+            available_quality = 0
         
         # Extract track-level metadata  
         bpm = resp.get("bpm")
@@ -153,7 +167,8 @@ class TrackMetadata:
                 author = authors
         info = TrackInfo(
             id=track_id,
-            quality=album.info.quality,
+            quality=available_quality,
+            streamable=streamable,
             bit_depth=bit_depth,
             explicit=explicit,
             sampling_rate=sampling_rate,
@@ -199,6 +214,7 @@ class TrackMetadata:
         info = TrackInfo(
             id=track_id,
             quality=album.info.quality,
+            streamable=True,  # SoundCloud tracks are streamable by default
             bit_depth=bit_depth,
             explicit=explicit,
             sampling_rate=sampling_rate,
@@ -235,25 +251,38 @@ class TrackMetadata:
             all_artist_names = [a["name"] for a in tidal_artists]
             artist = all_artist_names[0]  # Primary artist (first one)
             artists = all_artist_names  # All artists
+            # Get first artist ID for source_artist_id
+            artist_id = str(tidal_artists[0]["id"])
         else:
             artist = track["artist"]["name"]
             artists = [artist]  # Single artist list
+            # Get artist ID from single artist object
+            artist_id = str(track["artist"]["id"])
+
+        # Check if track is streamable from Tidal API
+        allow_streaming = track.get("allowStreaming", True)
+        streamable = allow_streaming
 
         lyrics = track.get("lyrics", "")
+        
+        # Extract additional Tidal metadata
+        bpm = track.get("bpm")
+        if bpm == 0:
+            bpm = None
+        
+        # Convert replayGain to standard format
+        replaygain_track_gain = None
+        if "replayGain" in track and track["replayGain"] is not None:
+            replaygain_track_gain = f"{track['replayGain']:+.2f} dB"
+        
+        # Standard streaming source metadata
+        media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
 
-        quality_map: dict[str, int] = {
-            "LOW": 0,
-            "HIGH": 1,
-            "LOSSLESS": 2,
-            "HI_RES": 3,
-        }
-
-        tidal_quality = track.get("audioQuality")
-        if tidal_quality is not None:
-            quality = quality_map[tidal_quality]
-        else:
-            quality = 0
-
+        # Tidal returns single quality based on request, not all available qualities
+        # Use the album's quality which comes from config
+        quality = album.info.quality
+        
+        # Set bit depth and sampling rate based on quality
         if quality >= 2:
             sampling_rate = 44100
             if quality == 3:
@@ -266,6 +295,7 @@ class TrackMetadata:
         info = TrackInfo(
             id=item_id,
             quality=quality,
+            streamable=streamable,
             bit_depth=bit_depth,
             explicit=explicit,
             sampling_rate=sampling_rate,
@@ -283,10 +313,17 @@ class TrackMetadata:
             artists=artists,
             isrc=isrc,
             lyrics=lyrics,
+            source_platform=album.source_platform,
+            source_track_id=item_id,
+            source_album_id=album.source_album_id,
+            source_artist_id=artist_id,
+            bpm=bpm,
+            replaygain_track_gain=replaygain_track_gain,
+            media_type=media_type,
         )
 
     @classmethod
-    def from_resp(cls, album: AlbumMetadata, source, resp) -> TrackMetadata | None:
+    def from_resp(cls, album: AlbumMetadata, source, resp) -> TrackMetadata:
         if source == "qobuz":
             return cls.from_qobuz(album, resp)
         if source == "tidal":

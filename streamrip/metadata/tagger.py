@@ -240,6 +240,16 @@ class Container(Enum):
                 text = [(meta.tracknumber, meta.album.tracktotal)]
             elif k == "discnumber":
                 text = [(meta.discnumber, meta.album.disctotal)]
+            elif k == "bpm":
+                # BPM (tmpo) must be an integer for MP4 tags
+                bpm_value = self._attr_from_meta(meta, k)
+                if bpm_value is not None:
+                    try:
+                        text = [int(bpm_value)]
+                    except (ValueError, TypeError):
+                        text = None
+                else:
+                    text = None
             elif k == "isrc" and meta.isrc is not None:
                 # because ISRC is an mp4 freeform value (not supported natively)
                 # we have to pass in the actual bytes to mutagen

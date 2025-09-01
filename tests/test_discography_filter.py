@@ -20,6 +20,7 @@ def create_album(
         explicit=explicit,
         sampling_rate=sampling_rate,
         bit_depth=bit_depth,
+        streamable=True,
     )
     metadata = AlbumMetadata(
         info=info,

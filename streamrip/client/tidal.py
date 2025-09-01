@@ -27,12 +27,6 @@ STREAM_URL_REGEX = re.compile(
     r"#EXT-X-STREAM-INF:BANDWIDTH=\d+,AVERAGE-BANDWIDTH=\d+,CODECS=\"(?!jpeg)[^\"]+\",RESOLUTION=\d+x\d+\n(.+)"
 )
 
-QUALITY_MAP = {
-    0: "LOW",  # AAC
-    1: "HIGH",  # AAC
-    2: "LOSSLESS",  # CD Quality
-    3: "HI_RES",  # MQA
-}
 
 
 class TidalClient(Client):
@@ -111,24 +105,41 @@ class TidalClient(Client):
             item["albums"] = album_resp["items"]
             item["albums"].extend(ep_resp["items"])
         elif media_type == "track":
-            try:
-                resp = await self._api_request(
-                    f"tracks/{item_id!s}/lyrics", base="https://listen.tidal.com/v1"
-                )
+            if self.config.fetch_lyrics:
+                try:
+                    resp = await self._api_request(
+                        f"tracks/{item_id!s}/lyrics", base="https://listen.tidal.com/v1"
+                    )
 
-                # Use unsynced lyrics for MP3, synced for others (FLAC, OPUS, etc)
-                if (
-                    self.global_config.session.conversion.enabled
-                    and self.global_config.session.conversion.codec.upper() == "MP3"
-                ):
-                    item["lyrics"] = resp.get("lyrics") or ""
-                else:
-                    item["lyrics"] = resp.get("subtitles") or resp.get("lyrics") or ""
-            except TypeError as e:
-                logger.warning(f"Failed to get lyrics for {item_id}: {e}")
+                    # Use unsynced lyrics for MP3, synced for others (FLAC, OPUS, etc)
+                    if (
+                        self.global_config.session.conversion.enabled
+                        and self.global_config.session.conversion.codec.upper() == "MP3"
+                    ):
+                        item["lyrics"] = resp.get("lyrics") or ""
+                    else:
+                        item["lyrics"] = resp.get("subtitles") or resp.get("lyrics") or ""
+                except (TypeError, NonStreamableError) as e:
+                    logger.debug(f"No lyrics available for track {item_id}: {e}")
+                    item["lyrics"] = ""
+            else:
+                item["lyrics"] = ""
 
         logger.debug(item)
         return item
+
+    async def get_user_favorites(self, user_id: str, media_type: str) -> dict:
+        """Get user favorites from Tidal API."""
+        if media_type == "tracks":
+            return await self._api_request(f"users/{user_id}/favorites/tracks")
+        elif media_type == "albums":
+            return await self._api_request(f"users/{user_id}/favorites/albums")
+        elif media_type == "artists":
+            return await self._api_request(f"users/{user_id}/favorites/artists")
+        elif media_type == "playlists":
+            return await self._api_request(f"users/{user_id}/playlists")
+        else:
+            raise ValueError(f"Unsupported media type: {media_type}")
 
     async def search(self, media_type: str, query: str, limit: int = 100) -> list[dict]:
         """Search for a query.
@@ -152,26 +163,29 @@ class TidalClient(Client):
         return []
 
     async def get_downloadable(self, track_id: str, quality: int):
+        # Map generic quality int to Tidal-specific format
+        quality_map = ["LOW", "HIGH", "LOSSLESS", "HI_RES"]
+        tidal_quality = quality_map[quality]
+        
         params = {
-            "audioquality": QUALITY_MAP[quality],
+            "audioquality": tidal_quality,
             "playbackmode": "STREAM",
             "assetpresentation": "FULL",
         }
-        resp = await self._api_request(
-            f"tracks/{track_id}/playbackinfopostpaywall", params
-        )
-        logger.debug(resp)
+        
         try:
-            manifest = json.loads(base64.b64decode(resp["manifest"]).decode("utf-8"))
-        except KeyError:
-            raise Exception(resp["userMessage"])
-        except JSONDecodeError:
-            logger.warning(
-                f"Failed to get manifest for {track_id}. Retrying with lower quality."
+            resp = await self._api_request(
+                f"tracks/{track_id}/playbackinfopostpaywall", params
             )
-            return await self.get_downloadable(track_id, quality - 1)
+            manifest = json.loads(base64.b64decode(resp["manifest"]).decode("utf-8"))
+            
+        except (KeyError, JSONDecodeError) as e:
+            error_msg = resp.get("userMessage", str(e)) if 'resp' in locals() else str(e)
+            if isinstance(e, KeyError):
+                raise Exception(f"Missing manifest data: {error_msg}")
+            else:  # JSONDecodeError
+                raise Exception(f"Failed to decode manifest for track {track_id}: {error_msg}")
 
-        logger.debug(manifest)
         enc_key = manifest.get("keyId")
         if manifest.get("encryptionType") == "NONE":
             enc_key = None
@@ -326,34 +340,52 @@ class TidalClient(Client):
     # ---------- API Request Utilities ---------------
 
     async def _api_post(self, url, data, auth: aiohttp.BasicAuth | None = None) -> dict:
-        """Post to the Tidal API. Status not checked!
-
-        :param url:
-        :param data:
-        :param auth:
-        """
-        async with self.rate_limiter:
-            async with self.session.post(url, data=data, auth=auth) as resp:
-                return await resp.json()
+        """Post to the Tidal API with retry logic for rate limiting."""
+        return await self._request_with_retry(
+            lambda: self.session.post(url, data=data, auth=auth), 
+            f"POST {url}"
+        )
 
     async def _api_request(self, path: str, params=None, base: str = BASE) -> dict:
-        """Handle Tidal API requests.
-
-        :param path:
-        :type path: str
-        :param params:
-        :rtype: dict
-        """
+        """Handle Tidal API requests with retry logic for rate limiting."""
         if params is None:
             params = {}
 
         params["countryCode"] = self.config.country_code
         params["limit"] = 100
 
-        async with self.rate_limiter:
-            async with self.session.get(f"{base}/{path}", params=params) as resp:
-                if resp.status == 404:
-                    logger.warning("TIDAL: track not found", resp)
-                    raise NonStreamableError("TIDAL: Track not found")
-                resp.raise_for_status()
-                return await resp.json()
+        return await self._request_with_retry(
+            lambda: self.session.get(f"{base}/{path}", params=params), 
+            path
+        )
+
+    async def _request_with_retry(self, request_func, name: str, max_retries: int = 3) -> dict:
+        """Generic retry logic for API requests."""
+        for attempt in range(max_retries + 1):
+            async with self.rate_limiter:
+                async with await request_func() as resp:
+                    if resp.status == 404:
+                        raise NonStreamableError("TIDAL: Not found")
+                    
+                    if resp.status == 401:
+                        raise NonStreamableError("TIDAL: Unauthorized - may be due to geo restrictions or quality not available with current subscription")
+                    
+                    if resp.status == 429:
+                        if attempt == max_retries:
+                            resp.raise_for_status()
+                        
+                        retry_after = resp.headers.get('Retry-After', '2')
+                        try:
+                            wait_time = min(int(retry_after), 60)
+                        except ValueError:
+                            wait_time = min(2 ** attempt, 60)
+                        
+                        logger.warning(f"Rate limited on {name}, waiting {wait_time}s")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    
+                    resp.raise_for_status()
+                    json_data = await resp.json()
+                    return json_data
+        
+        raise Exception(f"Failed request after {max_retries} retries")

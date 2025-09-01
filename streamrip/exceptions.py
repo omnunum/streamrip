@@ -66,5 +66,6 @@ class NonStreamableError(Exception):
         return " ".join(base_msg)
 
 
+
 class ConversionError(Exception):
     """ConversionError."""

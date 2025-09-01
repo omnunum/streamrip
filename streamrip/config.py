@@ -54,6 +54,10 @@ class TidalConfig:
     quality: int
     # This will download videos included in Video Albums.
     download_videos: bool
+    # Fetch lyrics from Tidal API. Disabling this reduces API calls and helps with rate limiting.
+    fetch_lyrics: bool
+    # If the target quality is not available, fallback to best quality available
+    lower_quality_if_not_available: bool
 
 
 @dataclass(slots=True)

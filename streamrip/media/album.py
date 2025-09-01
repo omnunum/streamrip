@@ -39,7 +39,7 @@ class Album(Media):
                     return
                 await track.rip()
             except Exception as e:
-                logger.error(f"Error downloading track: {e}")
+                logger.error(f"Error downloading track: {type(e).__name__}: {e}", exc_info=True)
 
         results = await asyncio.gather(
             *[_resolve_and_download(p) for p in self.tracks], return_exceptions=True
@@ -97,10 +97,9 @@ class PendingAlbum(Pending):
             logger.error(f"Error building album metadata for {id=}: {e}")
             return None
 
-        if meta is None:
-            logger.error(
-                f"Album {self.id} not available to stream on {self.client.source}",
-            )
+        # Check if album is streamable
+        if not meta.info.streamable:
+            logger.error(f"Album '{meta.album}' by {meta.albumartist} [{self.id}] not available for stream on {self.client.source}")
             return None
 
         tracklist = get_album_track_ids(self.client.source, resp)

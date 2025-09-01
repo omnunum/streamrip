@@ -141,18 +141,36 @@ class PendingTrack(Pending):
             logger.error(f"Error building track metadata for {self.id}: {e}")
             return None
 
-        if meta is None:
-            logger.error(f"Track {self.id} not available for stream on {source}")
+        # Check if track is streamable
+        if not meta.info.streamable:
+            logger.error(f"Track '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}] not available for stream on {source}")
             self.db.set_failed(source, "track", self.id)
             return None
 
-        quality = self.config.session.get_source(source).quality
+        # Check quality requirements and select appropriate quality
+        source_config = self.config.session.get_source(source)
+        requested_quality = source_config.quality
+        lower_quality_fallback = source_config.lower_quality_if_not_available
+        
+        # meta.info.quality contains the highest available quality for this track
+        # Now select the actual quality to download
+        if meta.info.quality < requested_quality and not lower_quality_fallback:
+            logger.error(f"Track '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}]: Quality {meta.info.quality} available but {requested_quality} requested - skipping due to lower_quality_if_not_available=false")
+            self.db.set_failed(source, "track", self.id)
+            return None
+
+        # Select the quality to download: min of requested and available
+        quality = min(requested_quality, meta.info.quality)
+        
+        # Get downloadable info for the determined quality
         try:
             downloadable = await self.client.get_downloadable(self.id, quality)
+
         except NonStreamableError as e:
             logger.error(
                 f"Error getting downloadable data for track {meta.tracknumber} '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}]: {e}"
             )
+            self.db.set_failed(source, "track", self.id)
             return None
 
         # Update container format based on actual downloadable format
@@ -219,16 +237,28 @@ class PendingSingle(Pending):
             logger.error(f"Error building track metadata for track {id=}: {e}")
             return None
 
-        if meta is None:
+        # Check if track is streamable
+        if not meta.info.streamable:
+            logger.error(f"Track '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}] not available for stream on {self.client.source}")
             self.db.set_failed(self.client.source, "track", self.id)
-            logger.error(
-                f"Cannot stream track (tm) ({self.id}) on {self.client.source}",
-            )
             return None
 
+        # Check quality requirements and select appropriate quality
+        source_config = self.config.session.get_source(self.client.source)
+        requested_quality = source_config.quality
+        lower_quality_fallback = source_config.lower_quality_if_not_available
+        
+        # meta.info.quality contains the highest available quality for this track
+        # Now select the actual quality to download
+        if meta.info.quality < requested_quality and not lower_quality_fallback:
+            logger.error(f"Track '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}]: Quality {meta.info.quality} available but {requested_quality} requested - skipping due to lower_quality_if_not_available=false")
+            self.db.set_failed(self.client.source, "track", self.id)
+            return None
+
+        # Select the quality to download: min of requested and available
+        quality = min(requested_quality, meta.info.quality)
+        
         config = self.config.session
-        quality = getattr(config, self.client.source).quality
-        assert isinstance(quality, int)
         parent = config.downloads.folder
         if config.filepaths.add_singles_to_folder:
             folder = os.path.join(parent, self._format_folder(album))

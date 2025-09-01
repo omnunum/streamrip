@@ -59,11 +59,21 @@ class PendingPlaylistTrack(Pending):
             )
             self.db.set_failed(self.client.source, "track", self.id)
             return None
+
         meta = TrackMetadata.from_resp(album, self.client.source, resp)
-        if meta is None:
-            logger.error(
-                f"Track ({self.id}) not available for stream on {self.client.source}",
-            )
+        # Check if track is streamable
+        if not meta.info.streamable:
+            logger.error(f"Track '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}] not available for stream on {self.client.source}")
+            self.db.set_failed(self.client.source, "track", self.id)
+            return None
+
+        # Check quality requirements
+        source_config = self.config.session.get_source(self.client.source)
+        requested_quality = source_config.quality
+        lower_quality_fallback = getattr(source_config, 'lower_quality_if_not_available', False)
+        
+        if meta.info.quality < requested_quality and not lower_quality_fallback:
+            logger.error(f"Track '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{self.id}]: Quality {meta.info.quality} available but {requested_quality} requested - skipping due to lower_quality_if_not_available=false")
             self.db.set_failed(self.client.source, "track", self.id)
             return None
 
