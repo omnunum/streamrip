@@ -57,7 +57,7 @@ class PlaylistMetadata:
                 track,
             )
             # Check if track is streamable
-            if not meta.streamable:
+            if not meta.info.streamable:
                 logger.error(f"Track '{meta.title}' by {meta.artist} (Album: {meta.album.album}) [{i+1} in playlist {name}] not available for stream")
                 continue
             tracks.append(meta)

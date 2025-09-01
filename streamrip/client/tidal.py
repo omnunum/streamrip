@@ -27,12 +27,6 @@ STREAM_URL_REGEX = re.compile(
     r"#EXT-X-STREAM-INF:BANDWIDTH=\d+,AVERAGE-BANDWIDTH=\d+,CODECS=\"(?!jpeg)[^\"]+\",RESOLUTION=\d+x\d+\n(.+)"
 )
 
-QUALITY_MAP = {
-    0: "LOW",  # AAC
-    1: "HIGH",  # AAC
-    2: "LOSSLESS",  # CD Quality
-    3: "HI_RES",  # MQA
-}
 
 
 class TidalClient(Client):
@@ -169,8 +163,12 @@ class TidalClient(Client):
         return []
 
     async def get_downloadable(self, track_id: str, quality: int):
+        # Map generic quality int to Tidal-specific format
+        quality_map = ["LOW", "HIGH", "LOSSLESS", "HI_RES"]
+        tidal_quality = quality_map[quality]
+        
         params = {
-            "audioquality": QUALITY_MAP[quality],
+            "audioquality": tidal_quality,
             "playbackmode": "STREAM",
             "assetpresentation": "FULL",
         }

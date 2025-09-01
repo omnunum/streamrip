@@ -98,7 +98,7 @@ class PendingAlbum(Pending):
             return None
 
         # Check if album is streamable
-        if not meta.streamable:
+        if not meta.info.streamable:
             logger.error(f"Album '{meta.album}' by {meta.albumartist} [{self.id}] not available for stream on {self.client.source}")
             return None
 

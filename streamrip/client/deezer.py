@@ -116,14 +116,20 @@ class DeezerClient(Client):
         album_metadata["tracks"] = album_tracks["data"]
         album_metadata["track_total"] = len(album_tracks["data"])
         item["album"] = album_metadata
-        
+        item["qualities"] = [ None, None, None]
         # Add detailed track info with composer/author data if available
-        if detailed_track_info and "SNG_CONTRIBUTORS" in detailed_track_info:
-            contributors = detailed_track_info["SNG_CONTRIBUTORS"]
-            if "composer" in contributors:
-                item["composer"] = contributors["composer"]
-            if "author" in contributors:
-                item["author"] = contributors["author"]
+        if detailed_track_info:
+            if "SNG_CONTRIBUTORS" in detailed_track_info:
+                contributors = detailed_track_info["SNG_CONTRIBUTORS"]
+                if "composer" in contributors:
+                    item["composer"] = contributors["composer"]
+                if "author" in contributors:
+                    item["author"] = contributors["author"]
+            item["qualities"] = [
+                ("FILESIZE_MP3_128" if int(detailed_track_info.get("FILESIZE_MP3_128", 0)) != 0 else None),
+                ("FILESIZE_MP3_320" if int(detailed_track_info.get("FILESIZE_MP3_320", 0)) != 0 else None),
+                ("FILESIZE_FLAC" if int(detailed_track_info.get("FILESIZE_FLAC", 0)) != 0 else None),
+            ]
 
         return item
 
@@ -200,47 +206,13 @@ class DeezerClient(Client):
         # TODO: optimize such that all of the ids are requested at once
         dl_info: dict = {"quality": quality, "id": item_id}
 
+        # Map generic quality int to Deezer-specific format
+        quality_map = ["MP3_128", "MP3_320", "FLAC"]
+        format_str = quality_map[quality]
         track_info = await self._api_call(self.client.gw.get_track, item_id)
-
         fallback_id = track_info.get("FALLBACK", {}).get("SNG_ID")
-
-        quality_map = [
-            (9, "MP3_128"),  # quality 0
-            (3, "MP3_320"),  # quality 1
-            (1, "FLAC"),  # quality 2
-        ]
-        size_map = [
-            int(track_info.get(f"FILESIZE_{format}", 0)) for _, format in quality_map
-        ]
-        dl_info["quality_to_size"] = size_map
         
-        # Check if requested quality is available
-        if size_map[quality] == 0:
-            if self.config.lower_quality_if_not_available:
-                # Fallback to lower quality
-                while size_map[quality] == 0 and quality > 0:
-                    artist_name = track_info.get("ART_NAME", "Unknown Artist")
-                    album_title = track_info.get("ALB_TITLE", "Unknown Album") 
-                    track_title = track_info.get("SNG_TITLE", "Unknown Track")
-                    logger.warning(
-                        "The requested quality %s is not available for '%s' by %s (Album: %s). Falling back to quality %s",
-                        quality,
-                        track_title,
-                        artist_name,
-                        album_title,
-                        quality - 1,
-                    )
-                    quality -= 1
-            else:
-                # No fallback - raise error
-                raise NonStreamableError(
-                    f"The requested quality {quality} is not available and fallback is disabled."
-                )
-        
-        # Update the quality in dl_info to reflect the final quality used
         dl_info["quality"] = quality
-
-        _, format_str = quality_map[quality]
 
         token = track_info["TRACK_TOKEN"]
         try:

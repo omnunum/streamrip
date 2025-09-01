@@ -15,6 +15,7 @@ class TrackInfo:
     id: str
     quality: int
 
+    streamable: bool = True  # Whether the track is available for streaming
     bit_depth: Optional[int] = None
     explicit: bool = False
     sampling_rate: Optional[int | float] = None
@@ -46,7 +47,6 @@ class TrackMetadata:
     # New standard tags
     track_artist_credit: str | None = None  # Different from track artist
     media_type: str | None = None  # "WEB" for streaming sources
-    streamable: bool = True  # Whether the track is available for streaming
 
     @classmethod
     def from_qobuz(cls, album: AlbumMetadata, resp: dict) -> TrackMetadata:
@@ -82,6 +82,7 @@ class TrackMetadata:
         info = TrackInfo(
             id=track_id,
             quality=album.info.quality,
+            streamable=streamable,
             bit_depth=bit_depth,
             explicit=explicit,
             sampling_rate=sampling_rate,
@@ -98,15 +99,29 @@ class TrackMetadata:
             author=None,
             artists=artists,
             isrc=isrc,
-            streamable=streamable,
         )
 
-    @classmethod
+    @classmethod  
     def from_deezer(cls, album: AlbumMetadata, resp) -> TrackMetadata:
         track_id = str(resp["id"])
         # Get first artist ID from contributors list
         artist_id = str(resp["contributors"][0]["id"]) if resp["contributors"] else None
         isrc = typed(resp["isrc"], str)
+        
+        # Process Deezer qualities into standardized format
+        # resp.qualities is already an array: [MP3_128 or None, MP3_320 or None, FLAC or None]
+        qualities = resp.get("qualities", [None, None, None])
+        
+        # Find highest available quality (max index where quality is not None)
+        available_indices = [i for i, q in enumerate(qualities) if q is not None]
+        available_quality = max(available_indices) if available_indices else None
+        
+        # Check if track is streamable
+        streamable = available_quality is not None
+        
+        # Set default if no quality found
+        if available_quality is None:
+            available_quality = 0
         
         # Extract track-level metadata  
         bpm = resp.get("bpm")
@@ -152,7 +167,8 @@ class TrackMetadata:
                 author = authors
         info = TrackInfo(
             id=track_id,
-            quality=album.info.quality,
+            quality=available_quality,
+            streamable=streamable,
             bit_depth=bit_depth,
             explicit=explicit,
             sampling_rate=sampling_rate,
@@ -177,7 +193,6 @@ class TrackMetadata:
             replaygain_track_gain=replaygain_track_gain,
             track_artist_credit=track_artist_credit,
             media_type=media_type,
-            streamable=True,  # Deezer tracks are streamable by default
         )
 
     @classmethod
@@ -199,6 +214,7 @@ class TrackMetadata:
         info = TrackInfo(
             id=track_id,
             quality=album.info.quality,
+            streamable=True,  # SoundCloud tracks are streamable by default
             bit_depth=bit_depth,
             explicit=explicit,
             sampling_rate=sampling_rate,
@@ -215,7 +231,6 @@ class TrackMetadata:
             author=None,
             artists=artists,
             isrc=isrc,
-            streamable=True,  # SoundCloud tracks are streamable by default
         )
 
     @classmethod
@@ -244,8 +259,9 @@ class TrackMetadata:
             # Get artist ID from single artist object
             artist_id = str(track["artist"]["id"])
 
-        # Check if track is streamable
-        streamable = track.get("allowStreaming", True)
+        # Check if track is streamable from Tidal API
+        allow_streaming = track.get("allowStreaming", True)
+        streamable = allow_streaming
 
         lyrics = track.get("lyrics", "")
         
@@ -262,19 +278,11 @@ class TrackMetadata:
         # Standard streaming source metadata
         media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
 
-        quality_map: dict[str, int] = {
-            "LOW": 0,
-            "HIGH": 1,
-            "LOSSLESS": 2,
-            "HI_RES": 3,
-        }
-
-        tidal_quality = track.get("audioQuality")
-        if tidal_quality is not None:
-            quality = quality_map[tidal_quality]
-        else:
-            quality = 0
-
+        # Tidal returns single quality based on request, not all available qualities
+        # Use the album's quality which comes from config
+        quality = album.info.quality
+        
+        # Set bit depth and sampling rate based on quality
         if quality >= 2:
             sampling_rate = 44100
             if quality == 3:
@@ -287,6 +295,7 @@ class TrackMetadata:
         info = TrackInfo(
             id=item_id,
             quality=quality,
+            streamable=streamable,
             bit_depth=bit_depth,
             explicit=explicit,
             sampling_rate=sampling_rate,
@@ -311,11 +320,10 @@ class TrackMetadata:
             bpm=bpm,
             replaygain_track_gain=replaygain_track_gain,
             media_type=media_type,
-            streamable=streamable,
         )
 
     @classmethod
-    def from_resp(cls, album: AlbumMetadata, source, resp) -> TrackMetadata | None:
+    def from_resp(cls, album: AlbumMetadata, source, resp) -> TrackMetadata:
         if source == "qobuz":
             return cls.from_qobuz(album, resp)
         if source == "tidal":

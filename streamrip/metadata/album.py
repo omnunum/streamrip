@@ -28,6 +28,8 @@ class AlbumInfo:
     sampling_rate: int | float | None = None
     bit_depth: int | None = None
     booklets: list[dict] | None = None
+    streamable: bool = True  # Whether the album is available for streaming
+
 
 
 @dataclass(slots=True)
@@ -62,7 +64,6 @@ class AlbumMetadata:
     album_artist_credit: str | None = None  # Different from album artist
     originaldate: str | None = None  # Vorbis standard name
     media_type: str | None = None  # "WEB" for streaming sources
-    streamable: bool = True  # Whether the album is available for streaming
 
     def get_genres(self) -> str:
         return ", ".join(self.genre)
@@ -160,6 +161,7 @@ class AlbumMetadata:
             sampling_rate=sampling_rate,
             bit_depth=bit_depth,
             booklets=booklets,
+            streamable=True,
         )
         return AlbumMetadata(
             info,
@@ -180,7 +182,6 @@ class AlbumMetadata:
             lyrics=None,
             purchase_date=None,
             tracktotal=tracktotal,
-            streamable=True,
         )
 
     @classmethod
@@ -233,6 +234,7 @@ class AlbumMetadata:
             sampling_rate=sampling_rate,
             bit_depth=bit_depth,
             booklets=booklets,
+            streamable=True,
         )
         return AlbumMetadata(
             info,
@@ -263,7 +265,6 @@ class AlbumMetadata:
             album_artist_credit=album_artist_credit,
             originaldate=originaldate,
             media_type=media_type,
-            streamable=True,
         )
 
     @classmethod
@@ -305,6 +306,7 @@ class AlbumMetadata:
             sampling_rate=sampling_rate,
             bit_depth=bit_depth,
             booklets=None,
+            streamable=True,
         )
         return AlbumMetadata(
             info,
@@ -325,7 +327,6 @@ class AlbumMetadata:
             lyrics=None,
             purchase_date=None,
             tracktotal=tracktotal,
-            streamable=True,
         )
 
     @classmethod
@@ -424,6 +425,7 @@ class AlbumMetadata:
             sampling_rate=sampling_rate,
             bit_depth=bit_depth,
             booklets=None,
+            streamable=True,
         )
         return AlbumMetadata(
             info,
@@ -450,7 +452,6 @@ class AlbumMetadata:
             barcode=barcode,
             releasetype=releasetype,
             media_type=media_type,
-            streamable=streamable,
         )
 
     @classmethod
@@ -548,6 +549,7 @@ class AlbumMetadata:
             sampling_rate=sampling_rate,
             bit_depth=bit_depth,
             booklets=None,
+            streamable=True,
         )
         return AlbumMetadata(
             info,
@@ -573,7 +575,6 @@ class AlbumMetadata:
             source_artist_id=artist_id,
             releasetype=releasetype,
             media_type=media_type,
-            streamable=streamable,
         )
 
     @classmethod
@@ -596,6 +597,7 @@ class AlbumMetadata:
             sampling_rate=None,
             bit_depth=None,
             booklets=None,
+            streamable=True,
         )
         return AlbumMetadata(
             info,
@@ -616,7 +618,6 @@ class AlbumMetadata:
             lyrics=None,
             purchase_date=None,
             tracktotal=1,
-            streamable=True,
         )
 
     @classmethod
