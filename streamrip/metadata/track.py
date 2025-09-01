@@ -116,8 +116,8 @@ class TrackMetadata:
         available_indices = [i for i, q in enumerate(qualities) if q is not None]
         available_quality = max(available_indices) if available_indices else None
         
-        # Check if track is streamable
-        streamable = available_quality is not None
+        # Check if track is streamable based on readable field and available qualities
+        streamable = resp.get("readable", True) and available_quality is not None
         
         # Set default if no quality found
         if available_quality is None:
