@@ -146,6 +146,30 @@ class AlbumMetadata:
         # Make sure it is non-empty list
         booklets = typed(resp.get("goodies", None) or None, list | None)
         item_id = str(resp.get("qobuz_id"))
+        
+        # Extract additional Qobuz metadata
+        barcode = resp.get("upc")
+        # Normalize release type casing: keep EP uppercase, others title case
+        raw_type = resp.get("release_type")
+        if raw_type:
+            if raw_type.upper() == "EP":
+                releasetype = "EP"
+            else:
+                releasetype = raw_type.title()  # Album, Single, etc.
+        else:
+            releasetype = None
+        originaldate = resp.get("release_date_original")
+        media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
+        
+        # Source platform identification
+        source_platform = "qobuz"
+        source_album_id = item_id
+        # Get first artist ID for source_artist_id
+        source_artist_id = None
+        if artists:
+            source_artist_id = str(artists[0]["id"])
+        elif resp.get("artist", {}).get("id"):
+            source_artist_id = str(resp["artist"]["id"])
 
         if sampling_rate and bit_depth:
             container = "FLAC"
@@ -182,6 +206,13 @@ class AlbumMetadata:
             lyrics=None,
             purchase_date=None,
             tracktotal=tracktotal,
+            source_platform=source_platform,
+            source_album_id=source_album_id,
+            source_artist_id=source_artist_id,
+            barcode=barcode,
+            releasetype=releasetype,
+            originaldate=originaldate,
+            media_type=media_type,
         )
 
     @classmethod
@@ -425,7 +456,7 @@ class AlbumMetadata:
             sampling_rate=sampling_rate,
             bit_depth=bit_depth,
             booklets=None,
-            streamable=True,
+            streamable=streamable,
         )
         return AlbumMetadata(
             info,
@@ -549,7 +580,7 @@ class AlbumMetadata:
             sampling_rate=sampling_rate,
             bit_depth=bit_depth,
             booklets=None,
-            streamable=True,
+            streamable=streamable,
         )
         return AlbumMetadata(
             info,

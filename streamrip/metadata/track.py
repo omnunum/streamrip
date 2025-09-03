@@ -76,6 +76,25 @@ class TrackMetadata:
         track_id = str(resp["id"])
         bit_depth = typed(resp.get("maximum_bit_depth"), int | None)
         sampling_rate = typed(resp.get("maximum_sampling_rate"), int | float | None)
+        
+        # Extract ReplayGain data
+        replaygain_track_gain = None
+        audio_info = resp.get("audio_info", {})
+        if "replaygain_track_gain" in audio_info and audio_info["replaygain_track_gain"] is not None:
+            replaygain_track_gain = f"{audio_info['replaygain_track_gain']:+.2f} dB"
+        
+        # Extract performer information
+        performers_str = resp.get("performers")
+        
+        # Additional Qobuz metadata
+        media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
+        source_platform = "qobuz"
+        source_track_id = track_id
+        qobuz_album_id = resp.get("album", {}).get("qobuz_id")
+        source_album_id = str(qobuz_album_id) if qobuz_album_id else None
+        performer_id = resp.get("performer", {}).get("id")
+        source_artist_id = str(performer_id) if performer_id else None
+        
         # Is the info included?
         explicit = False
 
@@ -96,9 +115,15 @@ class TrackMetadata:
             tracknumber=tracknumber,
             discnumber=discnumber,
             composer=composer,
-            author=None,
+            author=performers_str,  # Use performers string as author/credits
             artists=artists,
             isrc=isrc,
+            source_platform=source_platform,
+            source_track_id=source_track_id,
+            source_album_id=source_album_id,
+            source_artist_id=source_artist_id,
+            replaygain_track_gain=replaygain_track_gain,
+            media_type=media_type,
         )
 
     @classmethod  
