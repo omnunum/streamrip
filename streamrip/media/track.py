@@ -150,7 +150,7 @@ class PendingTrack(Pending):
         # Check quality requirements and select appropriate quality
         source_config = self.config.session.get_source(source)
         requested_quality = source_config.quality
-        lower_quality_fallback = source_config.lower_quality_if_not_available
+        lower_quality_fallback = getattr(source_config, 'lower_quality_if_not_available', False)
         
         # meta.info.quality contains the highest available quality for this track
         # Now select the actual quality to download
@@ -246,7 +246,7 @@ class PendingSingle(Pending):
         # Check quality requirements and select appropriate quality
         source_config = self.config.session.get_source(self.client.source)
         requested_quality = source_config.quality
-        lower_quality_fallback = source_config.lower_quality_if_not_available
+        lower_quality_fallback = getattr(source_config, 'lower_quality_if_not_available', False)
         
         # meta.info.quality contains the highest available quality for this track
         # Now select the actual quality to download
