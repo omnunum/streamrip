@@ -151,13 +151,11 @@ class AlbumMetadata:
         barcode = resp.get("upc")
         # Normalize release type casing: keep EP uppercase, others title case
         raw_type = resp.get("release_type")
-        if raw_type:
-            if raw_type.upper() == "EP":
-                releasetype = "EP"
-            else:
-                releasetype = raw_type.title()  # Album, Single, etc.
-        else:
-            releasetype = None
+        type_mapper = {
+            "epmini": "EP",
+            "bestof": "Best Of",
+        }
+        releasetype = type_mapper.get(raw_type.lower(), str(raw_type).title())
         originaldate = resp.get("release_date_original")
         media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
         
