@@ -26,18 +26,8 @@ class PendingUserFavorites(Pending):
     async def resolve(self) -> Media | None:
         """Resolve user favorites to a collection of media items."""
         try:
-            # Get favorites data from Deezer API
-            if self.media_type == "tracks":
-                resp = await self.client.get_user_favorites(self.user_id, "tracks")
-            elif self.media_type == "albums":
-                resp = await self.client.get_user_favorites(self.user_id, "albums")
-            elif self.media_type == "artists":
-                resp = await self.client.get_user_favorites(self.user_id, "artists")
-            elif self.media_type == "playlists":
-                resp = await self.client.get_user_favorites(self.user_id, "playlists")
-            else:
-                logger.error(f"Unsupported media type: {self.media_type}")
-                return None
+            # Get favorites data from client API - all clients now have standardized interface
+            resp = await self.client.get_user_favorites(self.media_type, user_id=self.user_id)
 
         except NonStreamableError as e:
             logger.error(f"User favorites {self.user_id}/{self.media_type} not available: {e}")
@@ -46,32 +36,11 @@ class PendingUserFavorites(Pending):
             logger.error(f"Error fetching user favorites: {e}")
             return None
 
-        # Handle different response formats based on client source
-        if self.client.source == "deezer":
-            if "data" not in resp or not resp["data"]:
-                logger.info(f"No {self.media_type} found in user {self.user_id} favorites")
-                return None
-            items = resp["data"]
-        elif self.client.source == "tidal":
-            # Tidal API may return items directly or in different structure
-            if "items" in resp:
-                items = resp["items"]
-            elif isinstance(resp, list):
-                items = resp
-            else:
-                logger.info(f"No {self.media_type} found in user {self.user_id} favorites")
-                return None
-        else:
-            # Generic fallback - try common patterns
-            if "data" in resp and resp["data"]:
-                items = resp["data"]
-            elif "items" in resp:
-                items = resp["items"]
-            elif isinstance(resp, list):
-                items = resp
-            else:
-                logger.info(f"No {self.media_type} found in user {self.user_id} favorites")
-                return None
+        # All clients now return standardized format: {"items": [...]}
+        if "items" not in resp or not resp["items"]:
+            logger.info(f"No {self.media_type} found in user {self.user_id} favorites")
+            return None
+        items = resp["items"]
         logger.info(f"Found {len(items)} favorited {self.media_type} for user {self.user_id}")
 
         # Create a UserFavorites collection
@@ -104,15 +73,8 @@ class UserFavorites(Media):
         # Create Pending objects for each item
         pending_items = []
         for item in self.items:
-            # Handle different ID field names based on source
-            if self.client.source == "tidal":
-                # Tidal might use 'id', 'uuid', or other field names
-                item_id = str(item.get("id") or item.get("uuid") or item.get("item", {}).get("id", "unknown"))
-            elif self.client.source == "deezer":
-                item_id = str(item["id"])
-            else:
-                # Generic fallback - try common ID field names
-                item_id = str(item.get("id") or item.get("uuid") or item.get("item_id", "unknown"))
+            # All clients now return standardized items with "id" field
+            item_id = str(item.get("id", "unknown"))
             
             if item_id == "unknown":
                 logger.warning(f"Could not extract ID from item: {item}")

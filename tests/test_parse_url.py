@@ -5,6 +5,7 @@ from streamrip.rip.parse_url import (
     DeezerDynamicURL,
     DeezerProfileURL,
     GenericURL,
+    QobuzFavoritesURL,
     SoundcloudURL,
     parse_url,
 )
@@ -119,6 +120,32 @@ class TestParseURL(unittest.TestCase):
             self.assertIsNotNone(result, f"Should parse URL: {url}")
             self.assertIsInstance(result, SoundcloudURL)
             self.assertEqual(result.source, "soundcloud")
+
+    def test_qobuz_favorites_url(self):
+        """Test that Qobuz favorites URLs are matched correctly."""
+        urls = [
+            "https://play.qobuz.com/user/library/favorites/albums",
+            "https://play.qobuz.com/user/library/favorites/artists",
+            "https://play.qobuz.com/user/library/favorites/tracks",
+        ]
+
+        for url in urls:
+            result = parse_url(url)
+            self.assertIsNotNone(result, f"Should parse URL: {url}")
+            self.assertIsInstance(result, QobuzFavoritesURL)
+            self.assertEqual(result.source, "qobuz")
+
+        # Test invalid Qobuz favorites URLs
+        invalid_urls = [
+            "https://play.qobuz.com/user/library/favorites/playlists",  # Not supported
+            "https://play.qobuz.com/user/library/favorites/",  # Missing media type
+            "https://qobuz.com/user/library/favorites/albums",  # Wrong domain
+        ]
+
+        for url in invalid_urls:
+            result = parse_url(url)
+            if result is not None and isinstance(result, QobuzFavoritesURL):
+                self.fail(f"URL should not be matched by QobuzFavoritesURL: {url}")
 
 
 class TestDeezerDynamicURL(unittest.TestCase):

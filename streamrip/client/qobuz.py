@@ -308,12 +308,22 @@ class QobuzClient(Client):
         epoint = "album/getFeatured"
         return await self._paginate(epoint, params, limit=limit)
 
-    async def get_user_favorites(self, media_type: str, limit: int = 500) -> list[dict]:
-        assert media_type in ("track", "artist", "album")
-        params = {"type": f"{media_type}s"}
+    async def get_user_favorites(self, media_type: str, user_id: str = None, limit: int = 500) -> dict:
+        # Qobuz doesn't use user_id - it uses authenticated user, so we ignore the user_id parameter
+        assert media_type in ("tracks", "albums", "artists")
+        params = {"type": f"{media_type}"}
         epoint = "favorite/getUserFavorites"
 
-        return await self._paginate(epoint, params, limit=limit)
+        resp = await self._paginate(epoint, params, limit=limit)
+        
+        # Standardize response format - Qobuz returns {media_type: {items: [...]}}
+        # Extract items from the nested structure
+        if isinstance(resp, list) and len(resp) > 0 and media_type in resp[0]:
+            section = resp[0][media_type]
+            if "items" in section and section["items"]:
+                return {"items": section["items"]}
+        
+        return {"items": []}
 
     async def get_user_playlists(self, limit: int = 500) -> list[dict]:
         epoint = "playlist/getUserPlaylists"
@@ -361,6 +371,8 @@ class QobuzClient(Client):
         logger.debug("paginate: initial request made with status %d", status)
         # albums, tracks, etc.
         key = epoint.split("/")[0] + "s"
+        if key == "favorites":
+            key = params["type"]
         items = page.get(key, {})
         total = items.get("total", 0)
         if limit is not None and limit < total:
