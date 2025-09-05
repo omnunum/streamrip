@@ -51,7 +51,7 @@ class PlaylistMetadata:
         name = typed(resp["name"], str)
         tracks = []
 
-        for i, track in enumerate(resp["tracks"]["items"]):
+        for i, track in enumerate(resp["tracks"]):
             meta = TrackMetadata.from_qobuz(
                 AlbumMetadata.from_qobuz(track["album"]),
                 track,

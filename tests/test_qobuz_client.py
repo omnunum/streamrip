@@ -41,10 +41,10 @@ def test_client_raises_missing_credentials():
     "QOBUZ_EMAIL" not in os.environ, reason="Qobuz credentials not found in env."
 )
 def test_client_get_metadata(qobuz_client):
-    meta = arun(qobuz_client.get_metadata("s9nzkwg2rh1nc", "album"))
-    assert meta["title"] == "I Killed Your Dog"
-    assert len(meta["tracks"]["items"]) == 16
-    assert meta["maximum_bit_depth"] == 24
+    meta = arun(qobuz_client.get_metadata("0656605209067", "album"))
+    assert meta["title"] == "In The Future"
+    assert len(meta["tracks"]) == 10
+    assert meta["maximum_bit_depth"] == 16
 
 
 @pytest.mark.skipif(

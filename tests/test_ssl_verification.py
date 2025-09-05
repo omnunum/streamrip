@@ -299,9 +299,13 @@ async def test_client_uses_config_settings():
         mock_config.session.downloads.verify_ssl = False
 
         # Create client
-        try:
-            client = TidalClient(mock_config)
+        client = TidalClient(mock_config)
 
+        # Mock the API request method to return proper data
+        with patch.object(client, "_api_request", AsyncMock()) as mock_api_request:
+            # Mock API responses with actual integer values
+            mock_api_request.return_value = {"numberOfTracks": 5}
+            
             # Mock the session creation method
             with patch.object(client, "get_session", AsyncMock()) as mock_get_session:
                 await client.login()
@@ -315,8 +319,6 @@ async def test_client_uses_config_settings():
                     assert call_kwargs["verify_ssl"] is False
                 except (AttributeError, AssertionError):
                     pytest.skip("verify_ssl not used in TidalClient.login yet")
-        except Exception as e:
-            pytest.skip(f"Could not test TidalClient: {e}")
 
 
 def test_cli_option_registered():

@@ -10,7 +10,6 @@ from ..db import Database
 from ..exceptions import NonStreamableError
 from ..filepath_utils import clean_filepath
 from ..metadata import AlbumMetadata
-from ..metadata.util import get_album_track_ids
 from .artwork import download_artwork
 from .media import Media, Pending
 from .track import PendingTrack
@@ -102,7 +101,7 @@ class PendingAlbum(Pending):
             logger.error(f"Album '{meta.album}' by {meta.albumartist} [{self.id}] not available for stream on {self.client.source}")
             return None
 
-        tracklist = get_album_track_ids(self.client.source, resp)
+        tracklist = [track["id"] for track in resp["tracks"]]
         
         # Check if all tracks are already downloaded (edge case for pre-optimization downloads)
         all_tracks_downloaded = all(self.db.downloaded(track_id) for track_id in tracklist)

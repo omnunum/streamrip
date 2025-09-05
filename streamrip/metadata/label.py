@@ -18,7 +18,7 @@ class LabelMetadata:
     def from_resp(cls, resp: dict, source: str) -> LabelMetadata:
         logger.debug(resp)
         if source == "qobuz":
-            return cls(resp["name"], [a["id"] for a in resp["albums"]["items"]])
+            return cls(resp["name"], [a["id"] for a in resp["albums"]])
         elif source == "tidal":
             return cls(resp["name"], [a["id"] for a in resp["albums"]])
         elif source == "deezer":

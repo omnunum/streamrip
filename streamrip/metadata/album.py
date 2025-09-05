@@ -130,7 +130,7 @@ class AlbumMetadata:
         disctotal = typed(
             max(
                 track.get("media_number", 1)
-                for track in safe_get(resp, "tracks", "items", default=[{}])  # type: ignore
+                for track in safe_get(resp, "tracks", default=[{}])  # type: ignore
             )
             or 1,
             int,

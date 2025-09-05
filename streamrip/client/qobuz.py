@@ -247,6 +247,12 @@ class QobuzClient(Client):
                 f'Error fetching metadata. Message: "{resp["message"]}"',
             )
 
+        # Normalize response structure to match other clients
+        if media_type in ("album", "playlist") and "tracks" in resp and "items" in resp["tracks"]:
+            resp["tracks"] = resp["tracks"]["items"]
+        elif media_type in ("artist", "label") and "albums" in resp and "items" in resp["albums"]:
+            resp["albums"] = resp["albums"]["items"]
+
         return resp
 
     async def get_label(self, label_id: str) -> dict:
@@ -265,6 +271,9 @@ class QobuzClient(Client):
         albums_count = label_resp["albums_count"]
 
         if albums_count <= page_limit:
+            # Normalize response structure to match other clients
+            if "albums" in label_resp and "items" in label_resp["albums"]:
+                label_resp["albums"] = label_resp["albums"]["items"]
             return label_resp
 
         requests = [
@@ -287,6 +296,8 @@ class QobuzClient(Client):
             assert status == 200
             items.extend(resp["albums"]["items"])
 
+        # Normalize response structure to match other clients
+        label_resp["albums"] = items
         return label_resp
 
     async def search(self, media_type: str, query: str, limit: int = 500) -> list[dict]:
