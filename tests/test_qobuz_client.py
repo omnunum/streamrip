@@ -170,21 +170,23 @@ def test_qobuz_metadata_integration():
     
     track_meta = TrackMetadata.from_qobuz(album_meta, track_resp)
     
-    # Should combine base composer with parsed composers
+    # Should combine base composer with parsed composers (now lists)
     assert "John Darnielle" in track_meta.composer  # Base composer from API
     assert "Isaiah Mitchell" in track_meta.composer  # From performers
     assert "Mario Rubalcaba" in track_meta.composer  # From performers
-    assert track_meta.author == "Isaiah Mitchell"  # From performers Author role
+    assert track_meta.author == ["Isaiah Mitchell"]  # From performers Author role
     
     # Test duplicate avoidance - if same composer is in both base and performers
     track_resp_duplicate = qobuz_track_resp.copy()
     track_resp_duplicate["performers"] = "John Darnielle, Composer - Isaiah Mitchell, Author"
     
+    # Simulate client-level parsing
+    track_resp_duplicate["_parsed_performer_roles"] = QobuzClient.parse_performers(track_resp_duplicate["performers"])
+    
     track_meta_duplicate = TrackMetadata.from_qobuz(album_meta, track_resp_duplicate)
     
     # John Darnielle should only appear once despite being in both base and performers
-    composer_parts = track_meta_duplicate.composer.split(", ")
-    john_count = sum(1 for part in composer_parts if "John Darnielle" in part)
+    john_count = track_meta_duplicate.composer.count("John Darnielle")
     assert john_count == 1, f"John Darnielle appears {john_count} times, should be 1"
 
 

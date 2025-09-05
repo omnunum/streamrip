@@ -78,7 +78,7 @@ def test_tag_flac_no_cover(sample_metadata):
     assert file["artist"][0] == "testartist"
     assert file["albumartist"][0] == "testalbumartist"
     assert file["year"][0] == "1999"
-    assert file["genre"][0] == "rock, pop"
+    assert file["genre"] == ["rock", "pop"]
     assert file["tracknumber"][0] == "03"
     assert file["discnumber"][0] == "01"
     assert file["copyright"][0] == "© stuff ℗ other stuff"
@@ -100,7 +100,7 @@ def test_tag_flac_cover(sample_metadata):
     assert file["artist"][0] == "testartist"
     assert file["albumartist"][0] == "testalbumartist"
     assert file["year"][0] == "1999"
-    assert file["genre"][0] == "rock, pop"
+    assert file["genre"] == ["rock", "pop"]
     assert file["tracknumber"][0] == "03"
     assert file["discnumber"][0] == "01"
     assert file["copyright"][0] == "© stuff ℗ other stuff"

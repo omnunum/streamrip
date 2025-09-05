@@ -65,9 +65,6 @@ class AlbumMetadata:
     originaldate: str | None = None  # Vorbis standard name
     media_type: str | None = None  # "WEB" for streaming sources
 
-    def get_genres(self) -> str:
-        return ", ".join(self.genre)
-
     def get_copyright(self) -> str | None:
         if self.copyright is None:
             return None

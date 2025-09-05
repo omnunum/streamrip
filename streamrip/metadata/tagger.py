@@ -18,6 +18,7 @@ logger = logging.getLogger("streamrip")
 
 FLAC_MAX_BLOCKSIZE = 16777215  # 16.7 MB
 
+
 MP4_KEYS = (
     "\xa9nam",
     "\xa9ART",
@@ -173,29 +174,22 @@ class Container(Enum):
         out = []
         for k, v in FLAC_KEY.items():
             tag = self._attr_from_meta(meta, k)
-            if tag:
-                if k in {
-                    "tracknumber",
-                    "discnumber",
-                    "tracktotal",
-                    "disctotal",
-                }:
-                    tag = f"{int(tag):02}"
-                elif k in ["source_track_id", "source_album_id", "source_artist_id"]:
-                    # Format source tags dynamically based on platform
-                    if meta.source_platform and tag:
-                        formatted_key = f"{meta.source_platform}_{k.replace('source_', '')}".upper()
-                        out.append((formatted_key, str(tag)))
-                    continue
-                elif k == "artists":
-                    # Handle multi-value artists for FLAC - return as list for mutagen
-                    if isinstance(tag, list):
-                        out.append((v, tag))  # Let mutagen handle the list natively
-                    else:
-                        out.append((v, str(tag)))
-                    continue
-                
-                out.append((v, str(tag)))
+            if not tag:
+                continue
+            if k in ["tracknumber", "discnumber", "tracktotal", "disctotal"]:
+                tag = f"{int(tag):02}"
+            elif k in ["source_track_id", "source_album_id", "source_artist_id"]:
+                # Format source tags dynamically based on platform
+                if meta.source_platform and tag:
+                    formatted_key = f"{meta.source_platform}_{k.replace('source_', '')}".upper()
+                    out.append((formatted_key, str(tag)))
+                continue
+            elif isinstance(tag, list):
+                # Handle multi-value fields for FLAC - return as list for mutagen
+                out.append((v, tag))  # Let mutagen handle the list natively
+                continue
+            
+            out.append((v, str(tag)))
         return out
 
     def _tag_mp3(self, meta: TrackMetadata):
@@ -213,14 +207,7 @@ class Container(Enum):
                     if text is not None:
                         out.append((formatted_key, text))
                 continue
-            elif k == "artists":
-                # Handle artists as TXXX with comma-separated values
-                artists = self._attr_from_meta(meta, k)
-                if artists is not None:
-                    text = ", ".join(artists) if isinstance(artists, list) else str(artists)
-                    out.append((f"TXXX:{k.upper()}", text))
-                continue
-            elif k in ["barcode", "replaygain_track_gain", "replaygain_album_gain", "releasetype", "track_artist_credit", "album_artist_credit", "media_type", "purchase_date", "originaldate"]:
+            elif k in ["artists", "barcode", "replaygain_track_gain", "replaygain_album_gain", "releasetype", "track_artist_credit", "album_artist_credit", "media_type", "purchase_date", "originaldate"]:
                 # Handle as TXXX custom tags
                 text = self._attr_from_meta(meta, k)
                 if text is not None:
@@ -264,14 +251,6 @@ class Container(Enum):
                         text = text.encode("utf-8")  # MP4 freeform tags need bytes
                         out.append((formatted_key, text))
                 continue
-            elif k == "artists" and v is not None:
-                # Handle artists as MP4 freeform with byte encoding
-                artists = self._attr_from_meta(meta, k)
-                if artists is not None:
-                    text = ", ".join(artists) if isinstance(artists, list) else str(artists)
-                    text = text.encode("utf-8")
-                    out.append((v, text))
-                continue
             elif k in ["barcode", "replaygain_track_gain", "replaygain_album_gain", "releasetype", "track_artist_credit", "album_artist_credit", "originaldate", "media_type"] and v is not None:
                 # Handle custom MP4 freeform tags that need bytes encoding
                 text = self._attr_from_meta(meta, k)
@@ -286,7 +265,7 @@ class Container(Enum):
                 out.append((v, text))
         return out
 
-    def _attr_from_meta(self, meta: TrackMetadata, attr: str) -> str | None:
+    def _attr_from_meta(self, meta: TrackMetadata, attr: str) -> str | list | None:
         # TODO: verify this works
         in_trackmetadata = {
             "title",
@@ -316,23 +295,37 @@ class Container(Enum):
             elif attr == "artist":
                 # Return primary artist only (string)
                 return getattr(meta, attr)
-            elif attr == "artists":
-                # Return all artists as list for format handlers to process
-                return getattr(meta, attr)
             val = getattr(meta, attr)
             if val is None:
                 return None
+            # Handle list values dynamically based on container type
+            if isinstance(val, list):
+                # For FLAC, return lists natively; for others, join with semicolon-space (MusicBrainz standard)
+                if self == Container.FLAC:
+                    return val if val else None
+                else:
+                    return "; ".join(val) if val else None
             return str(val)
         else:
             if attr == "genre":
-                return meta.album.get_genres()
+                val = meta.album.genre
             elif attr == "copyright":
                 return meta.album.get_copyright()
             elif attr == "label":
                 return meta.album.info.label
-            val = getattr(meta.album, attr)
+            else:
+                val = getattr(meta.album, attr)
+            
             if val is None:
                 return None
+            
+            # Handle list values dynamically based on container type
+            if isinstance(val, list):
+                # For FLAC, return lists natively; for others, join with semicolon-space (MusicBrainz standard)
+                if self == Container.FLAC:
+                    return val if val else None
+                else:
+                    return "; ".join(val) if val else None
             return str(val)
 
     def tag_audio(self, audio, tags: list[tuple]):

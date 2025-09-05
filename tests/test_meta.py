@@ -60,4 +60,4 @@ def test_track_metadata_qobuz():
     assert t.artist == "The Mountain Goats"
     assert t.tracknumber == 9
     assert t.discnumber == 1
-    assert t.composer == "John Darnielle"
+    assert t.composer == ["John Darnielle"] 

@@ -31,8 +31,8 @@ class TrackMetadata:
     artist: str  # Primary/first artist only (MusicBrainz standard)
     tracknumber: int
     discnumber: int
-    composer: str | None
-    author: str | None  # Songwriter/lyricist
+    composer: list[str] | None
+    author: list[str] | None  # Songwriter/lyricist
     # Fields with defaults must come after non-default fields
     artists: list[str] | None = None  # All contributing artists (MusicBrainz standard)
     isrc: str | None = None
@@ -103,8 +103,8 @@ class TrackMetadata:
             if composer_name not in all_composers:
                 all_composers.append(composer_name)
         
-        composer = ", ".join(all_composers) if all_composers else None
-        author = ", ".join(authors_from_roles) if authors_from_roles else None
+        composer = all_composers if all_composers else None
+        author = authors_from_roles if authors_from_roles else None
         
         # Additional Qobuz metadata
         media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
@@ -201,15 +201,15 @@ class TrackMetadata:
         if "composer" in resp:
             composers = resp["composer"]
             if isinstance(composers, list) and composers:
-                composer = ", ".join(composers)
-            elif isinstance(composers, str):
                 composer = composers
+            elif isinstance(composers, str):
+                composer = [composers]
         if "author" in resp:
             authors = resp["author"] 
             if isinstance(authors, list) and authors:
-                author = ", ".join(authors)
-            elif isinstance(authors, str):
                 author = authors
+            elif isinstance(authors, str):
+                author = [authors]
         info = TrackInfo(
             id=track_id,
             quality=available_quality,
@@ -394,7 +394,7 @@ class TrackMetadata:
             "artists": artists_str,  # All artists comma-separated
             "albumartist": self.album.albumartist,
             "albumcomposer": self.album.albumcomposer or none_text,
-            "composer": self.composer or none_text,
+            "composer": "; ".join(self.composer) if self.composer else none_text,
             "explicit": " (Explicit) " if self.info.explicit else "",
             "album": self.album.album,
             "source_platform": self.source_platform or none_text,
