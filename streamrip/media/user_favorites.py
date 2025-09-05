@@ -70,37 +70,54 @@ class UserFavorites(Media):
 
     async def download(self):
         """Download all items in the user's favorites."""
-        # Create Pending objects for each item
-        pending_items = []
-        for item in self.items:
-            # All clients now return standardized items with "id" field
-            item_id = str(item.get("id", "unknown"))
+        # If downloading full albums for liked tracks, get unique album IDs first
+        if (self.media_type == "tracks" and 
+            self.config.session.downloads.download_full_album_for_liked_tracks):
             
-            if item_id == "unknown":
-                logger.warning(f"Could not extract ID from item: {item}")
-                continue
+            # Get all track metadata in parallel to extract album IDs
+            track_ids = [str(item.get("id")) for item in self.items if item.get("id")]
+            metadata_results = await asyncio.gather(
+                *[self.client.get_metadata(tid, "track") for tid in track_ids], 
+                return_exceptions=True
+            )
             
-            if self.media_type == "tracks":
-                pending_items.append(PendingSingle(item_id, self.client, self.config, self.db))
-            elif self.media_type == "albums":
-                pending_items.append(PendingAlbum(item_id, self.client, self.config, self.db))
-            elif self.media_type == "artists":
-                pending_items.append(PendingArtist(item_id, self.client, self.config, self.db))
-            elif self.media_type == "playlists":
-                pending_items.append(PendingPlaylist(item_id, self.client, self.config, self.db))
+            # Extract unique album IDs
+            album_ids = set()
+            for result in metadata_results:
+                if not isinstance(result, Exception):
+                    album_id = result.get("album", {}).get("id")
+                    if album_id:
+                        album_ids.add(str(album_id))
+            
+            logger.info(f"Found {len(album_ids)} unique albums from {len(track_ids)} liked tracks")
+            pending_items = [PendingAlbum(aid, self.client, self.config, self.db) for aid in album_ids]
+        else:
+            # Create Pending objects for each item directly
+            pending_items = []
+            for item in self.items:
+                item_id = str(item.get("id", "unknown"))
+                if item_id == "unknown":
+                    continue
+                
+                if self.media_type == "tracks":
+                    pending_items.append(PendingSingle(item_id, self.client, self.config, self.db))
+                elif self.media_type == "albums":
+                    pending_items.append(PendingAlbum(item_id, self.client, self.config, self.db))
+                elif self.media_type == "artists":
+                    pending_items.append(PendingArtist(item_id, self.client, self.config, self.db))
+                elif self.media_type == "playlists":
+                    pending_items.append(PendingPlaylist(item_id, self.client, self.config, self.db))
 
-        # Process items in batches to avoid overwhelming the system
+        # Process items in batches
         batch_size = 5
         for i in range(0, len(pending_items), batch_size):
             batch = pending_items[i:i + batch_size]
             results = await asyncio.gather(*[item.resolve() for item in batch], return_exceptions=True)
             
-            # Download resolved items
             for result in results:
                 if isinstance(result, Exception):
                     logger.error(f"Error resolving item: {result}")
-                    continue
-                if result is not None:
+                elif result is not None:
                     try:
                         await result.rip()
                     except Exception as e:

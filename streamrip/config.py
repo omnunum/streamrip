@@ -207,6 +207,8 @@ class DownloadsConfig:
     # Verify SSL certificates for API connections
     # Set to false if you encounter SSL certificate verification errors (not recommended)
     verify_ssl: bool
+    # When downloading user favorites tracks, download the entire album instead of just the track
+    download_full_album_for_liked_tracks: bool
 
 
 @dataclass(slots=True)

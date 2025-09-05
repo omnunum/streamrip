@@ -28,7 +28,7 @@ QOBUZ_INTERPRETER_URL_REGEX = re.compile(
 )
 YOUTUBE_URL_REGEX = re.compile(r"https://www\.youtube\.com/watch\?v=[-\w]+")
 DEEZER_PROFILE_URL_REGEX = re.compile(
-    r"https://www\.deezer\.com/[a-z]{2}/profile/(\d+)/(artists|albums|tracks|playlists)",
+    r"https://www\.deezer\.com/[a-z]{2}/profile/(\d+)/(artists|albums|loved|playlists)",
 )
 TIDAL_COLLECTION_URL_REGEX = re.compile(
     r"https://tidal\.com/my-collection/(artists|albums|tracks)",
@@ -237,6 +237,9 @@ class DeezerProfileURL(URL):
 
     async def into_pending(self, client: Client, config: Config, db: Database) -> Pending:
         user_id, media_type = self.match.groups()
+        # Map Deezer's "loved" to "tracks" for API compatibility
+        if media_type == "loved":
+            media_type = "tracks"
         return PendingUserFavorites(user_id, media_type, client, config, db)
 
 

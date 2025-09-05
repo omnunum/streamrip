@@ -201,14 +201,14 @@ class TestDeezerDynamicURL(unittest.TestCase):
 
     def test_deezer_profile_url_tracks(self):
         """Test that Deezer profile track favorites URLs are matched correctly."""
-        url = "https://www.deezer.com/de/profile/987654321/tracks"
+        url = "https://www.deezer.com/de/profile/987654321/loved"
         result = parse_url(url)
         
         self.assertIsNotNone(result)
         self.assertIsInstance(result, DeezerProfileURL)
         self.assertEqual(result.source, "deezer")
         self.assertEqual(result.match.group(1), "987654321")
-        self.assertEqual(result.match.group(2), "tracks")
+        self.assertEqual(result.match.group(2), "loved")
 
     def test_deezer_profile_url_playlists(self):
         """Test that Deezer profile playlist URLs are matched correctly."""
