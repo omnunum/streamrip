@@ -41,10 +41,10 @@ def test_client_raises_missing_credentials():
     "QOBUZ_EMAIL" not in os.environ, reason="Qobuz credentials not found in env."
 )
 def test_client_get_metadata(qobuz_client):
-    meta = arun(qobuz_client.get_metadata("s9nzkwg2rh1nc", "album"))
-    assert meta["title"] == "I Killed Your Dog"
-    assert len(meta["tracks"]["items"]) == 16
-    assert meta["maximum_bit_depth"] == 24
+    meta = arun(qobuz_client.get_metadata("0656605209067", "album"))
+    assert meta["title"] == "In The Future"
+    assert len(meta["tracks"]) == 10
+    assert meta["maximum_bit_depth"] == 16
 
 
 @pytest.mark.skipif(
@@ -81,3 +81,110 @@ def test_client_search_no_limit(qobuz_client):
         total += len(r["albums"]["items"])
         correct_total = max(correct_total, r["albums"]["total"])
     assert total == correct_total
+
+
+def test_parse_qobuz_performers():
+    """Test parsing of Qobuz performers string."""
+    # Test case from user example
+    performers_str = "Earthless, Artist, MainArtist - Isaiah Mitchell, Composer, Author - Mario Rubalcaba, Composer - Mike Eginton, Composer"
+    roles = QobuzClient.parse_performers(performers_str)
+    
+    expected_roles = {
+        "Artist": ["Earthless"],
+        "MainArtist": ["Earthless"],
+        "Composer": ["Isaiah Mitchell", "Mario Rubalcaba", "Mike Eginton"],
+        "Author": ["Isaiah Mitchell"]
+    }
+    assert roles == expected_roles
+    
+    # Test case from test data
+    test_data_performers = "Trina Shoemaker, Producer - The Mountain Goats, MainArtist - John Darnielle, Composer, Lyricist - Cadmean Dawn (ASCAP) administered by Me Gusta Music, MusicPublisher"
+    roles2 = QobuzClient.parse_performers(test_data_performers)
+    
+    expected_roles2 = {
+        "Producer": ["Trina Shoemaker"],
+        "MainArtist": ["The Mountain Goats"],
+        "Composer": ["John Darnielle"],
+        "Lyricist": ["John Darnielle"],
+        "MusicPublisher": ["Cadmean Dawn (ASCAP) administered by Me Gusta Music"]
+    }
+    assert roles2 == expected_roles2
+    
+    # Test Elliott Smith example
+    elliott_performers = "Elliott Smith, Composer, MainArtist - 2020 Spent Bullets Music/Universal Music Careers, MusicPublisher"
+    roles3 = QobuzClient.parse_performers(elliott_performers)
+    
+    expected_roles3 = {
+        "Composer": ["Elliott Smith"],
+        "MainArtist": ["Elliott Smith"],
+        "MusicPublisher": ["2020 Spent Bullets Music/Universal Music Careers"]
+    }
+    assert roles3 == expected_roles3
+    
+    # Edge cases
+    assert QobuzClient.parse_performers(None) == {}
+    assert QobuzClient.parse_performers("") == {}
+    assert QobuzClient.parse_performers("Single Artist, MainArtist") == {"MainArtist": ["Single Artist"]}
+
+
+def test_deduplicate_copyright():
+    """Test deduplication of copyright strings."""
+    # Test basic duplication cases
+    assert QobuzClient.deduplicate_copyright("2022 Nuclear Blast 2022 Nuclear Blast") == "2022 Nuclear Blast"
+    assert QobuzClient.deduplicate_copyright("2023 Merge Records 2023 Merge Records") == "2023 Merge Records"
+    assert QobuzClient.deduplicate_copyright("2020 Universal Music 2020 Universal Music") == "2020 Universal Music"
+    
+    # Test cases that should not be modified
+    assert QobuzClient.deduplicate_copyright("Single Label") == "Single Label"
+    assert QobuzClient.deduplicate_copyright("") == ""
+    assert QobuzClient.deduplicate_copyright("Different First Second Different") == "Different First Second Different"
+    
+    # Test three-word duplication
+    assert QobuzClient.deduplicate_copyright("A B C A B C") == "A B C"
+
+
+def test_qobuz_metadata_integration():
+    """Test that parsing happens correctly in metadata classes."""
+    import json
+    from streamrip.metadata.album import AlbumMetadata
+    from streamrip.metadata.track import TrackMetadata
+    
+    # Load real test data
+    with open("tests/qobuz_track_resp.json") as f:
+        qobuz_track_resp = json.load(f)
+    album_resp = qobuz_track_resp["album"].copy()
+    album_resp["copyright"] = "2022 Nuclear Blast 2022 Nuclear Blast"  # Add duplication
+    
+    # Simulate client-level deduplication
+    album_resp["copyright"] = QobuzClient.deduplicate_copyright(album_resp["copyright"])
+    
+    album_meta = AlbumMetadata.from_qobuz(album_resp)
+    assert album_meta.copyright == "2022 Nuclear Blast"  # Should be deduplicated
+    
+    # Test track performer parsing (simulate client processing)
+    track_resp = qobuz_track_resp.copy()
+    track_resp["performers"] = "Earthless, Artist, MainArtist - Isaiah Mitchell, Composer, Author - Mario Rubalcaba, Composer"
+    
+    # Simulate client-level parsing
+    track_resp["_parsed_performer_roles"] = QobuzClient.parse_performers(track_resp["performers"])
+    
+    track_meta = TrackMetadata.from_qobuz(album_meta, track_resp)
+    
+    # Should combine base composer with parsed composers
+    assert "John Darnielle" in track_meta.composer  # Base composer from API
+    assert "Isaiah Mitchell" in track_meta.composer  # From performers
+    assert "Mario Rubalcaba" in track_meta.composer  # From performers
+    assert track_meta.author == "Isaiah Mitchell"  # From performers Author role
+    
+    # Test duplicate avoidance - if same composer is in both base and performers
+    track_resp_duplicate = qobuz_track_resp.copy()
+    track_resp_duplicate["performers"] = "John Darnielle, Composer - Isaiah Mitchell, Author"
+    
+    track_meta_duplicate = TrackMetadata.from_qobuz(album_meta, track_resp_duplicate)
+    
+    # John Darnielle should only appear once despite being in both base and performers
+    composer_parts = track_meta_duplicate.composer.split(", ")
+    john_count = sum(1 for part in composer_parts if "John Darnielle" in part)
+    assert john_count == 1, f"John Darnielle appears {john_count} times, should be 1"
+
+

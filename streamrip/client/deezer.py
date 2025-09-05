@@ -159,18 +159,29 @@ class DeezerClient(Client):
         artist["albums"] = albums["data"]
         return artist
 
-    async def get_user_favorites(self, user_id: str, media_type: str) -> dict:
+    async def get_user_favorites(self, media_type: str, user_id: str = None) -> dict:
         """Get user favorites from Deezer API."""
+        # For now, user_id is required since we don't have a way to get the authenticated user's ID
+        # In practice, user_id comes from the parsed URL and represents the authenticated user
+        if user_id is None:
+            raise ValueError("Deezer requires user_id parameter")
+            
         if media_type == "tracks":
-            return await self._api_call(self.client.api.get_user_tracks, user_id, limit=-1)
+            resp = await self._api_call(self.client.api.get_user_tracks, user_id, limit=-1)
         elif media_type == "albums":
-            return await self._api_call(self.client.api.get_user_albums, user_id, limit=-1)
+            resp = await self._api_call(self.client.api.get_user_albums, user_id, limit=-1)
         elif media_type == "artists":
-            return await self._api_call(self.client.api.get_user_artists, user_id, limit=-1)
+            resp = await self._api_call(self.client.api.get_user_artists, user_id, limit=-1)
         elif media_type == "playlists":
-            return await self._api_call(self.client.api.get_user_playlists, user_id, limit=-1)
+            resp = await self._api_call(self.client.api.get_user_playlists, user_id, limit=-1)
         else:
             raise Exception(f"Media type {media_type} not supported for user favorites")
+        
+        # Standardize response format - Deezer returns {data: [...]}
+        if "data" in resp and resp["data"]:
+            return {"items": resp["data"]}
+        else:
+            return {"items": []}
 
     async def search(self, media_type: str, query: str, limit: int = 200) -> list[dict]:
         # TODO: use limit parameter

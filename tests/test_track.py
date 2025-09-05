@@ -14,15 +14,16 @@ from streamrip.media.track import PendingSingle, Track
     "QOBUZ_EMAIL" not in os.environ, reason="Qobuz credentials not found in env."
 )
 def test_pending_resolve(qobuz_client: QobuzClient):
-    qobuz_client.config.session.downloads.folder = "./tests"
+    qobuz_client.config.session.downloads.folder = "tests"
+    qobuz_client.config.session.filepaths.add_singles_to_folder = True
     p = PendingSingle(
         "19512574",
         qobuz_client,
         qobuz_client.config,
-        db.Database(db.Dummy(), db.Dummy()),
+        db.Database(db.Dummy(), db.Dummy(), db.Dummy()),
     )
     t = arun(p.resolve())
-    dir = "tests/tests/Fleetwood Mac - Rumours (1977) [FLAC] [24B-96kHz]"
+    dir = "tests/Fleetwood Mac - Rumours (1977) [FLAC] [24B-96kHz]"
     assert os.path.isdir(dir)
     assert os.path.isfile(os.path.join(dir, "cover.jpg"))
     assert os.path.isfile(t.cover_path)

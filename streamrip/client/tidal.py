@@ -128,18 +128,41 @@ class TidalClient(Client):
         logger.debug(item)
         return item
 
-    async def get_user_favorites(self, user_id: str, media_type: str) -> dict:
+    async def get_user_favorites(self, media_type: str, user_id: str = None) -> dict:
         """Get user favorites from Tidal API."""
+        # Use authenticated user's ID if none provided
+        if user_id is None:
+            user_id = getattr(self.config, 'user_id', None)
+            if not user_id:
+                raise Exception("Tidal user not authenticated - cannot access favorites")
+        
         if media_type == "tracks":
-            return await self._api_request(f"users/{user_id}/favorites/tracks")
+            resp = await self._api_request(f"users/{user_id}/favorites/tracks")
         elif media_type == "albums":
-            return await self._api_request(f"users/{user_id}/favorites/albums")
+            resp = await self._api_request(f"users/{user_id}/favorites/albums")
         elif media_type == "artists":
-            return await self._api_request(f"users/{user_id}/favorites/artists")
+            resp = await self._api_request(f"users/{user_id}/favorites/artists")
         elif media_type == "playlists":
-            return await self._api_request(f"users/{user_id}/playlists")
+            resp = await self._api_request(f"users/{user_id}/playlists")
         else:
             raise ValueError(f"Unsupported media type: {media_type}")
+        
+        # Standardize response format - extract items and convert Tidal's nested structure
+        if "items" in resp and resp["items"]:
+            # Extract the actual item from Tidal's {item: {...}} wrapper
+            items = []
+            for item in resp["items"]:
+                if "item" in item:
+                    # Add metadata from wrapper level if needed
+                    actual_item = item["item"].copy()
+                    if "created" in item:
+                        actual_item["_favorited_at"] = item["created"]
+                    items.append(actual_item)
+                else:
+                    items.append(item)
+            return {"items": items}
+        else:
+            return {"items": []}
 
     async def search(self, media_type: str, query: str, limit: int = 100) -> list[dict]:
         """Search for a query.

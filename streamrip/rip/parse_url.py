@@ -33,6 +33,9 @@ DEEZER_PROFILE_URL_REGEX = re.compile(
 TIDAL_COLLECTION_URL_REGEX = re.compile(
     r"https://tidal\.com/my-collection/(artists|albums|tracks)",
 )
+QOBUZ_FAVORITES_URL_REGEX = re.compile(
+    r"https://play\.qobuz\.com/user/library/favorites/(artists|albums|tracks)",
+)
 
 
 class URL(ABC):
@@ -247,11 +250,23 @@ class TidalCollectionURL(URL):
 
     async def into_pending(self, client: Client, config: Config, db: Database) -> Pending:
         media_type = self.match.groups()[0]
-        # Use the authenticated user's ID from the Tidal client
-        user_id = getattr(client.config, 'user_id', None)
-        if not user_id:
-            raise Exception("Tidal user not authenticated - cannot access collection")
-        return PendingUserFavorites(str(user_id), media_type, client, config, db)
+        # Tidal client will use its stored user_id automatically, so we can use placeholder
+        return PendingUserFavorites(None, media_type, client, config, db)
+
+
+class QobuzFavoritesURL(URL):
+    @classmethod
+    def from_str(cls, url: str) -> URL | None:
+        match = QOBUZ_FAVORITES_URL_REGEX.match(url)
+        if match is None:
+            return None
+        return cls(match, "qobuz")
+
+    async def into_pending(self, client: Client, config: Config, db: Database) -> Pending:
+        media_type = self.match.groups()[0]
+        # For Qobuz, we don't need a specific user ID - the authenticated user is implied
+        # Use a placeholder since Qobuz client ignores the user_id parameter anyway
+        return PendingUserFavorites("ignored", media_type, client, config, db)
 
 
 def parse_url(url: str) -> URL | None:
@@ -271,6 +286,7 @@ def parse_url(url: str) -> URL | None:
         DeezerDynamicURL.from_str(url),
         DeezerProfileURL.from_str(url),
         TidalCollectionURL.from_str(url),
+        QobuzFavoritesURL.from_str(url),
         # TODO: the rest of the url types
     ]
     return next((u for u in parsed_urls if u is not None), None)

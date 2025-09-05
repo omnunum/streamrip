@@ -140,4 +140,4 @@ def test_deezer_get_track_metadata(deezer_client):
     downloadable = arun(deezer_client.get_downloadable("77874822", quality=highest_quality))
     assert downloadable.quality == highest_quality
     assert downloadable.url.startswith("https://")
-    assert downloadable._size > 0
+    assert arun(downloadable.size()) > 0

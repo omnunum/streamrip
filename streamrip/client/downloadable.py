@@ -129,6 +129,7 @@ class DeezerDownloadable(Downloadable):
         else:
             self.extension = "flac"
         self.id = str(info["id"])
+        self._size_base = None
 
     async def _download(self, path: str, callback):
         # with requests.Session().get(self.url, allow_redirects=True) as resp:
@@ -308,6 +309,7 @@ class SoundcloudDownloadable(Downloadable):
         else:
             raise Exception(f"Invalid file type: {self.file_type}")
         self.url = info["url"]
+        self._size_base = None
 
     async def _download(self, path, callback):
         if self.file_type == "mp3":
@@ -320,7 +322,7 @@ class SoundcloudDownloadable(Downloadable):
             self.session, self.url, "flac", source="soundcloud"
         )
         await downloader.download(path, callback)
-        self.size = downloader.size
+        self._size = await downloader.size()
         engine = converter.FLAC(path)
         await engine.convert(path)
 
