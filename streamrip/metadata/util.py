@@ -2,13 +2,6 @@ import functools
 from typing import Optional, Type, TypeVar
 
 
-def get_album_track_ids(source: str, resp) -> list[str]:
-    tracklist = resp["tracks"]
-    if source == "qobuz":
-        tracklist = tracklist["items"]
-    return [track["id"] for track in tracklist]
-
-
 def safe_get(dictionary, *keys, default=None):
     return functools.reduce(
         lambda d, key: d.get(key, default) if isinstance(d, dict) else default,
