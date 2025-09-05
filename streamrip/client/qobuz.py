@@ -25,6 +25,10 @@ logger = logging.getLogger("streamrip")
 
 QOBUZ_BASE_URL = "https://www.qobuz.com/api.json/0.2"
 
+
+
+
+
 QOBUZ_FEATURED_KEYS = {
     "most-streamed",
     "recent-releases",
@@ -253,6 +257,19 @@ class QobuzClient(Client):
         elif media_type in ("artist", "label") and "albums" in resp and "items" in resp["albums"]:
             resp["albums"] = resp["albums"]["items"]
 
+        # Process copyright deduplication for albums
+        if media_type == "album" and "copyright" in resp:
+            resp["copyright"] = self.deduplicate_copyright(resp["copyright"])
+
+        # Process performer roles for tracks
+        if media_type == "track" and "performers" in resp:
+            resp["_parsed_performer_roles"] = self.parse_performers(resp["performers"])
+        elif media_type == "album" and "tracks" in resp:
+            # Process performers for all tracks in album response
+            for track in resp["tracks"]:
+                if "performers" in track:
+                    track["_parsed_performer_roles"] = self.parse_performers(track["performers"])
+
         return resp
 
     async def get_label(self, label_id: str) -> dict:
@@ -339,6 +356,7 @@ class QobuzClient(Client):
     async def get_user_playlists(self, limit: int = 500) -> list[dict]:
         epoint = "playlist/getUserPlaylists"
         return await self._paginate(epoint, {}, limit=limit)
+
 
     async def get_downloadable(self, item: str, quality: int) -> Downloadable:
         assert self.secret is not None and self.logged_in and 1 <= quality <= 4
@@ -476,3 +494,74 @@ class QobuzClient(Client):
     def get_quality(quality: int):
         quality_map = (5, 6, 7, 27)
         return quality_map[quality - 1]
+
+    @staticmethod
+    def parse_performers(performers_str: str | None) -> dict[str, list[str]]:
+        """
+        Parse Qobuz performers string to extract all roles and performers.
+        
+        Format example: "Earthless, Artist, MainArtist - Isaiah Mitchell, Composer, Author - Mario Rubalcaba, Composer - Mike Eginton, Composer"
+        
+        Returns:
+            dict: Role name -> list of performer names
+            Example: {
+                "Artist": ["Earthless"],
+                "MainArtist": ["Earthless"],
+                "Composer": ["Isaiah Mitchell", "Mario Rubalcaba", "Mike Eginton"],
+                "Author": ["Isaiah Mitchell"]
+            }
+        """
+        if not performers_str:
+            return {}
+        
+        roles_dict = {}
+        
+        # Split by ' - ' to get individual performers
+        performer_entries = performers_str.split(' - ')
+        
+        for entry in performer_entries:
+            if not entry.strip():
+                continue
+                
+            # Split by comma to get name and roles
+            parts = [part.strip() for part in entry.split(',')]
+            if len(parts) < 2:
+                continue
+                
+            name = parts[0]
+            roles = [role.strip() for role in parts[1:]]
+            
+            # Add performer to each of their roles
+            for role in roles:
+                if role not in roles_dict:
+                    roles_dict[role] = []
+                if name not in roles_dict[role]:  # Avoid duplicates
+                    roles_dict[role].append(name)
+        
+        return roles_dict
+
+    @staticmethod
+    def deduplicate_copyright(copyright_str: str) -> str:
+        """
+        Remove duplicate parts from copyright strings.
+        
+        Examples:
+            "2022 Nuclear Blast 2022 Nuclear Blast" -> "2022 Nuclear Blast"
+            "2023 Merge Records 2023 Merge Records" -> "2023 Merge Records"
+        """
+        if not copyright_str:
+            return copyright_str
+        
+        # Split by spaces and look for repeating patterns
+        words = copyright_str.split()
+        
+        # Try to find the midpoint where duplication starts
+        half_len = len(words) // 2
+        if half_len > 0:
+            first_half = words[:half_len]
+            second_half = words[half_len:half_len*2]  # Only check same length
+            
+            if first_half == second_half:
+                return " ".join(first_half)
+        
+        return copyright_str

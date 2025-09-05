@@ -61,7 +61,9 @@ class TrackMetadata:
         if work is not None and work not in title:
             title = f"{work}: {title}"
 
-        composer = typed(resp.get("composer", {}).get("name"), str | None)
+        # Get base composer from API response
+        base_composer = typed(resp.get("composer", {}).get("name"), str | None)
+        
         tracknumber = typed(resp.get("track_number", 1), int)
         discnumber = typed(resp.get("media_number", 1), int)
         artist = typed(
@@ -83,8 +85,26 @@ class TrackMetadata:
         if "replaygain_track_gain" in audio_info and audio_info["replaygain_track_gain"] is not None:
             replaygain_track_gain = f"{audio_info['replaygain_track_gain']:+.2f} dB"
         
-        # Extract performer information
-        performers_str = resp.get("performers")
+        # Use pre-parsed performer roles from client
+        parsed_roles = resp.get("_parsed_performer_roles", {})
+        
+        # Extract composers and authors from parsed roles
+        composers_from_roles = parsed_roles.get("Composer", [])
+        authors_from_roles = parsed_roles.get("Author", []) + parsed_roles.get("Lyricist", [])
+        
+        # Combine base composer with performers composers, avoiding duplicates
+        all_composers = []
+        if base_composer:
+            base_composers = [c.strip() for c in base_composer.split(",")]
+            all_composers.extend(base_composers)
+        
+        # Add parsed composers, avoiding duplicates
+        for composer_name in composers_from_roles:
+            if composer_name not in all_composers:
+                all_composers.append(composer_name)
+        
+        composer = ", ".join(all_composers) if all_composers else None
+        author = ", ".join(authors_from_roles) if authors_from_roles else None
         
         # Additional Qobuz metadata
         media_type = "Digital Media"  # MusicBrainz standard for digital/streaming sources
@@ -115,7 +135,7 @@ class TrackMetadata:
             tracknumber=tracknumber,
             discnumber=discnumber,
             composer=composer,
-            author=performers_str,  # Use performers string as author/credits
+            author=author,
             artists=artists,
             isrc=isrc,
             source_platform=source_platform,
