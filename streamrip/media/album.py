@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from .. import progress
 from ..client import Client
 from ..config import Config
+from ..console import console
 from ..db import Database
 from ..exceptions import NonStreamableError
 from ..filepath_utils import clean_filepath
@@ -29,6 +30,8 @@ class Album(Media):
 
     async def preprocess(self):
         progress.add_title(self.meta.album)
+        if self.config.session.cli.dry_run:
+            await self._print_dry_run_info()
 
     async def download(self):
         async def _resolve_and_download(pending: Pending):
@@ -48,14 +51,31 @@ class Album(Media):
             if isinstance(result, Exception):
                 logger.error(f"Album track processing error: {result}")
 
+    async def _print_dry_run_info(self):
+        """Print album information for dry run mode."""
+        console.print(f"[green]Would download album:[/green] [bold]{self.meta.album}[/bold]")
+        console.print(f"  Artist: {self.meta.albumartist}")
+        if hasattr(self.meta, 'year') and self.meta.year:
+            console.print(f"  Year: {self.meta.year}")
+        console.print(f"  Tracks: {len(self.tracks)}")
+        if self.meta.disctotal > 1:
+            console.print(f"  Discs: {self.meta.disctotal}")
+        if hasattr(self.tracks[0], 'client') and hasattr(self.tracks[0].client, 'source'):
+            console.print(f"  Source: {self.tracks[0].client.source}")
+        console.print(f"  Folder: [dim]{self.folder}[/dim]")
+        console.print("")
+
     async def postprocess(self):
         progress.remove_title(self.meta.album)
-        
+
+        if self.config.session.cli.dry_run:
+            return
+
         # Check if all tracks in album were successfully downloaded
         track_ids = [track.id for track in self.tracks]
         downloaded_tracks = sum(1 for track_id in track_ids if self.db.downloaded(track_id))
         total_tracks = len(track_ids)
-        
+
         # Only mark complete if ALL tracks succeeded
         if downloaded_tracks == total_tracks and total_tracks > 0:
             # Get album ID from meta or first track's album info

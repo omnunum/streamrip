@@ -64,9 +64,41 @@ class AlbumMetadata:
     album_artist_credit: str | None = None  # Different from album artist
     originaldate: str | None = None  # Vorbis standard name
     media_type: str | None = None  # "WEB" for streaming sources
+    # RYM metadata
+    rym_descriptors: list[str] | None = None  # RateYourMusic descriptors
 
     def get_genres(self) -> str:
         return ", ".join(self.genre)
+
+    async def enrich_with_rym(self, rym_service):
+        """Enrich this album metadata with RateYourMusic data."""
+        if not rym_service or not rym_service.config.enabled:
+            return
+
+        try:
+            # Try to parse year as integer
+            year = None
+            if self.year and self.year != "Unknown":
+                try:
+                    year = int(self.year)
+                except ValueError:
+                    year = None
+
+            rym_metadata = await rym_service.get_album_metadata(
+                self.albumartist, self.album, year
+            )
+
+            if rym_metadata:
+                # Enrich genres
+                self.genre = rym_service.enrich_genres(self.genre, rym_metadata)
+
+                # Add descriptors
+                descriptors = rym_metadata.get('descriptors', [])
+                if descriptors:
+                    self.rym_descriptors = descriptors
+
+        except Exception as e:
+            logger.debug(f"Failed to enrich {self.albumartist} - {self.album} with RYM data: {e}")
 
     def get_copyright(self) -> str | None:
         if self.copyright is None:

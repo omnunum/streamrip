@@ -52,9 +52,10 @@ MP4_KEYS = (
     None,  # source_album_id (handled dynamically)
     None,  # source_artist_id (handled dynamically)
     "----:com.apple.iTunes:TRACK_ARTIST_CREDIT",
-    "----:com.apple.iTunes:ALBUM_ARTIST_CREDIT", 
+    "----:com.apple.iTunes:ALBUM_ARTIST_CREDIT",
     "----:com.apple.iTunes:ORIGINALDATE",  # was ORIGINAL_RELEASE_DATE
     "----:com.apple.iTunes:MEDIA_TYPE",
+    "----:com.apple.iTunes:RYM_DESCRIPTORS",
 )
 
 MP3_KEYS = (
@@ -94,6 +95,7 @@ MP3_KEYS = (
     None,  # album_artist_credit (handled as TXXX)
     id3.TDOR,  # originaldate
     None,  # media_type (handled as TXXX)
+    None,  # rym_descriptors (handled as TXXX)
 )
 
 METADATA_TYPES = (
@@ -133,6 +135,7 @@ METADATA_TYPES = (
     "album_artist_credit",
     "originaldate",
     "media_type",
+    "rym_descriptors",
 )
 
 
@@ -194,6 +197,20 @@ class Container(Enum):
                     else:
                         out.append((v, str(tag)))
                     continue
+                elif k == "genre":
+                    # Handle multi-value genres for FLAC - return as list for mutagen
+                    if isinstance(tag, list):
+                        out.append((v, tag))  # Let mutagen handle the list natively
+                    else:
+                        out.append((v, str(tag)))
+                    continue
+                elif k == "rym_descriptors":
+                    # Handle multi-value RYM descriptors for FLAC - return as list for mutagen
+                    if isinstance(tag, list):
+                        out.append((v, tag))  # Let mutagen handle the list natively
+                    else:
+                        out.append((v, str(tag)))
+                    continue
                 
                 out.append((v, str(tag)))
         return out
@@ -220,7 +237,7 @@ class Container(Enum):
                     text = ", ".join(artists) if isinstance(artists, list) else str(artists)
                     out.append((f"TXXX:{k.upper()}", text))
                 continue
-            elif k in ["barcode", "replaygain_track_gain", "replaygain_album_gain", "releasetype", "track_artist_credit", "album_artist_credit", "media_type", "purchase_date", "originaldate"]:
+            elif k in ["barcode", "replaygain_track_gain", "replaygain_album_gain", "releasetype", "track_artist_credit", "album_artist_credit", "media_type", "purchase_date", "originaldate", "rym_descriptors"]:
                 # Handle as TXXX custom tags
                 text = self._attr_from_meta(meta, k)
                 if text is not None:
@@ -272,7 +289,7 @@ class Container(Enum):
                     text = text.encode("utf-8")
                     out.append((v, text))
                 continue
-            elif k in ["barcode", "replaygain_track_gain", "replaygain_album_gain", "releasetype", "track_artist_credit", "album_artist_credit", "originaldate", "media_type"] and v is not None:
+            elif k in ["barcode", "replaygain_track_gain", "replaygain_album_gain", "releasetype", "track_artist_credit", "album_artist_credit", "originaldate", "media_type", "rym_descriptors"] and v is not None:
                 # Handle custom MP4 freeform tags that need bytes encoding
                 text = self._attr_from_meta(meta, k)
                 if text is not None:
@@ -325,7 +342,11 @@ class Container(Enum):
             return str(val)
         else:
             if attr == "genre":
-                return meta.album.get_genres()
+                # Return genres as list for FLAC to support multiple genre tags
+                return meta.album.genre
+            elif attr == "rym_descriptors":
+                # Return RYM descriptors as list for FLAC to support multiple descriptor tags
+                return meta.album.rym_descriptors
             elif attr == "copyright":
                 return meta.album.get_copyright()
             elif attr == "label":

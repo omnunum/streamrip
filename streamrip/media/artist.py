@@ -204,13 +204,120 @@ class PendingArtist(Pending):
             return None
 
         album_ids = meta.album_ids()
-        
-        # Check if all albums are downloaded and log appropriately  
+
+        # Check if all albums are downloaded and log appropriately
         if self.filter_and_log_albums(album_ids, self.db, self.client.source, meta.name, self.id):
             return None
-        
+
         albums = [
             PendingAlbum(album_id, self.client, self.config, self.db)
             for album_id in album_ids
         ]
         return Artist(meta.name, albums, self.client, self.config, self.id, self.db)
+
+    async def stream_albums(self):
+        """Async generator that yields albums as they're resolved.
+
+        This enables true streaming: albums start downloading as soon as they're
+        discovered, rather than waiting for all albums to be resolved first.
+        """
+        try:
+            resp = await self.client.get_metadata(self.id, "artist")
+        except NonStreamableError as e:
+            logger.error(
+                f"Artist {self.id} not available to stream on {self.client.source} ({e})",
+            )
+            return
+
+        try:
+            meta = ArtistMetadata.from_resp(resp, self.client.source)
+        except Exception as e:
+            logger.error(
+                f"Error building artist metadata: {e}",
+            )
+            return
+
+        album_ids = meta.album_ids()
+        artist_name = meta.name
+
+        # Get filters for this artist
+        filter_conf = self.config.session.qobuz_filters
+
+        # If repeat filtering is enabled, we need to resolve all albums first
+        # to detect duplicates. Otherwise we can stream them.
+        if filter_conf.repeats:
+            logger.info(f"Resolving all albums for {artist_name} to detect repeats...")
+            # Resolve all albums to apply repeat filter
+            pending_albums = [
+                PendingAlbum(album_id, self.client, self.config, self.db)
+                for album_id in album_ids
+            ]
+            resolved_albums = await asyncio.gather(
+                *[album.resolve() for album in pending_albums],
+                return_exceptions=True
+            )
+            valid_albums = [a for a in resolved_albums if isinstance(a, Album)]
+
+            # Apply filters including repeat removal
+            filtered_albums = self._apply_filters_to_albums(valid_albums, filter_conf, artist_name)
+
+            # Yield filtered albums
+            for album in filtered_albums:
+                yield album
+        else:
+            # Stream albums one by one, applying filters as we go
+            for album_id in album_ids:
+                # Check if already downloaded
+                if self.db.downloaded(album_id):
+                    logger.debug(f"Album {album_id} already downloaded, skipping")
+                    continue
+
+                try:
+                    pending_album = PendingAlbum(album_id, self.client, self.config, self.db)
+                    album = await pending_album.resolve()
+
+                    if album is None:
+                        continue
+
+                    # Apply filters (except repeats which requires all albums)
+                    if self._should_include_album(album, filter_conf, artist_name):
+                        yield album
+
+                except Exception as e:
+                    logger.error(f"Error resolving album {album_id}: {e}")
+                    continue
+
+    def _apply_filters_to_albums(self, albums: list[Album], filters, artist_name: str) -> list[Album]:
+        """Apply all filters to a list of albums (used when repeat filtering is enabled)."""
+        _albums = albums
+        if filters.repeats:
+            _albums = Artist._filter_repeats(_albums)
+        if filters.extras:
+            _albums = [a for a in _albums if self._extras_for_album(a)]
+        if filters.features:
+            _albums = [a for a in _albums if a.meta.albumartist == artist_name]
+        if filters.non_studio_albums:
+            _albums = [a for a in _albums if a.meta.albumartist != "Various Artists" and self._extras_for_album(a)]
+        if filters.non_remaster:
+            _albums = [a for a in _albums if self._non_remaster_for_album(a)]
+        return _albums
+
+    def _should_include_album(self, album: Album, filters, artist_name: str) -> bool:
+        """Check if an individual album should be included (for streaming mode)."""
+        if filters.extras and not self._extras_for_album(album):
+            return False
+        if filters.features and album.meta.albumartist != artist_name:
+            return False
+        if filters.non_studio_albums and (album.meta.albumartist == "Various Artists" or not self._extras_for_album(album)):
+            return False
+        if filters.non_remaster and not self._non_remaster_for_album(album):
+            return False
+        return True
+
+    def _extras_for_album(self, album: Album) -> bool:
+        """Filter out extras for a single album."""
+        return Artist._extra_re.search(album.meta.album) is None
+
+    def _non_remaster_for_album(self, album: Album) -> bool:
+        """Check if album is a remaster."""
+        return Artist._remaster_re.search(album.meta.album) is not None

@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from .. import converter
 from ..client import Client, Downloadable
 from ..config import Config
+from ..console import console
 from ..db import Database
 from ..exceptions import NonStreamableError
 from ..filepath_utils import clean_filename
 from ..metadata import AlbumMetadata, Covers, TrackMetadata, tag_file
 from ..progress import add_title, get_progress_callback, remove_title
+from ..utils.audio_validator import validate_audio_file
 from .artwork import download_artwork
 from .media import Media, Pending
 from .semaphore import global_download_semaphore
@@ -33,11 +35,16 @@ class Track(Media):
 
     async def preprocess(self):
         self._set_download_path()
-        os.makedirs(self.folder, exist_ok=True)
+        if not self.config.session.cli.dry_run:
+            os.makedirs(self.folder, exist_ok=True)
         if self.is_single:
             add_title(self.meta.title)
 
     async def download(self):
+        if self.config.session.cli.dry_run:
+            await self._print_dry_run_info()
+            return
+
         # TODO: progress bar description
         async with global_download_semaphore(self.config.session.downloads):
             with get_progress_callback(
@@ -72,15 +79,122 @@ class Track(Media):
                         self.downloadable.source, "track", self.meta.info.id
                     )
 
+    async def _print_dry_run_info(self):
+        """Print track information for dry run mode."""
+        try:
+            size_mb = (await self.downloadable.size()) / (1024 * 1024)
+            size_str = f"{size_mb:.1f} MB"
+        except:
+            size_str = "Unknown size"
+
+        quality_info = f"Quality: {self.meta.info.quality}"
+        if hasattr(self.meta.info, 'bit_depth') and hasattr(self.meta.info, 'sampling_rate'):
+            if self.meta.info.bit_depth and self.meta.info.sampling_rate:
+                quality_info += f" ({self.meta.info.bit_depth}-bit/{self.meta.info.sampling_rate//1000}kHz)"
+
+        console.print(f"[cyan]Would download:[/cyan] [bold]{self.meta.title}[/bold]")
+        console.print(f"  Artist: {self.meta.artist}")
+        console.print(f"  Album: {self.meta.album.album}")
+        console.print(f"  Track: {self.meta.tracknumber}/{self.meta.album.tracktotal}")
+        if self.meta.album.disctotal > 1:
+            console.print(f"  Disc: {self.meta.discnumber}/{self.meta.album.disctotal}")
+        console.print(f"  Source: {self.downloadable.source}")
+        console.print(f"  {quality_info}")
+        console.print(f"  Format: {self.meta.info.container}")
+        console.print(f"  Size: {size_str}")
+        console.print(f"  Path: [dim]{self.download_path}[/dim]")
+        console.print("")
+
     async def postprocess(self):
         if self.is_single:
             remove_title(self.meta.title)
+
+        if self.config.session.cli.dry_run:
+            return
+
+        # Validate audio file if enabled
+        if self.config.session.downloads.validate_audio:
+            await self._validate_audio_file()
 
         await tag_file(self.download_path, self.meta, self.cover_path)
         if self.config.session.conversion.enabled:
             await self._convert()
 
         self.db.set_downloaded(self.meta.info.id)
+
+    async def _validate_audio_file(self):
+        """Validate the downloaded audio file for corruption."""
+        if not os.path.exists(self.download_path):
+            logger.error(f"Audio file not found for validation: {self.download_path}")
+            self.db.set_failed(self.downloadable.source, "track", self.meta.info.id)
+            return
+
+        logger.debug(f"Validating audio file: {self.download_path}")
+        validation_result = await validate_audio_file(self.download_path)
+
+        if not validation_result.is_valid:
+            error_msg = f"Audio validation failed for '{self.meta.title}' by {self.meta.artist}"
+            if validation_result.error_message:
+                error_msg += f": {validation_result.error_message}"
+            if validation_result.validation_method:
+                error_msg += f" (method: {validation_result.validation_method})"
+
+            logger.error(error_msg)
+
+            # Delete invalid file if configured
+            if self.config.session.downloads.delete_invalid_files:
+                try:
+                    os.remove(self.download_path)
+                    logger.debug(f"Deleted invalid audio file: {self.download_path}")
+                except OSError as e:
+                    logger.warning(f"Failed to delete invalid file {self.download_path}: {e}")
+
+            # Mark as failed and potentially retry
+            self.db.set_failed(self.downloadable.source, "track", self.meta.info.id)
+
+            # Retry download if configured
+            if self.config.session.downloads.retry_on_validation_failure:
+                logger.info(f"Retrying download due to validation failure: '{self.meta.title}'")
+                await self._retry_download()
+            else:
+                raise Exception(f"Audio validation failed: {validation_result.error_message}")
+        else:
+            logger.debug(f"Audio validation passed: {self.download_path} (method: {validation_result.validation_method})")
+
+    async def _retry_download(self):
+        """Retry downloading the track after validation failure."""
+        try:
+            # Use the same progress callback logic as in the original download method
+            with get_progress_callback(
+                self.config.session.cli.progress_bars,
+                await self.downloadable.size(),
+                f"Track {self.meta.tracknumber} (retry after validation failure)",
+            ) as callback:
+                await self.downloadable.download(self.download_path, callback)
+
+            # Validate the retry
+            validation_result = await validate_audio_file(self.download_path)
+            if not validation_result.is_valid:
+                # Still invalid after retry
+                error_msg = f"Audio validation failed again after retry for '{self.meta.title}': {validation_result.error_message}"
+                logger.error(error_msg)
+
+                # Delete invalid file
+                if self.config.session.downloads.delete_invalid_files and os.path.exists(self.download_path):
+                    try:
+                        os.remove(self.download_path)
+                        logger.debug(f"Deleted invalid audio file after retry: {self.download_path}")
+                    except OSError as e:
+                        logger.warning(f"Failed to delete invalid file after retry {self.download_path}: {e}")
+
+                raise Exception(error_msg)
+            else:
+                logger.info(f"Retry successful - audio validation passed: '{self.meta.title}'")
+
+        except Exception as e:
+            logger.error(f"Retry download failed for '{self.meta.title}': {e}")
+            # Keep the track marked as failed
+            raise
 
     async def _convert(self):
         c = self.config.session.conversion

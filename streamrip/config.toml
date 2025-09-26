@@ -22,6 +22,12 @@ requests_per_minute = 60
 verify_ssl = true
 # When downloading user favorites tracks, download the entire album instead of just the track
 download_full_album_for_liked_tracks = false
+# Validate downloaded audio files for corruption using flac/ffprobe tools
+validate_audio = true
+# Retry downloads when validation fails
+retry_on_validation_failure = true
+# Delete invalid audio files automatically
+delete_invalid_files = true
 
 [qobuz]
 # 1: 320kbps MP3, 2: 16/44.1, 3: 24/<=96, 4: 24/>=96
@@ -185,9 +191,62 @@ truncate_to = 120
 [lastfm]
 # The source on which to search for the tracks.
 source = "qobuz"
-# If no results were found with the primary source, the item is searched for 
+# If no results were found with the primary source, the item is searched for
 # on this one.
 fallback_source = ""
+
+# RateYourMusic metadata enrichment
+[rym]
+# Enable RateYourMusic metadata enrichment
+enabled = false
+# How to handle RYM genres: "replace" existing genre tags or "append" to existing
+genre_mode = "replace"
+
+# RYM library configuration - all options from rym.RYMConfig can be specified here
+# Defaults will be used for any unspecified options
+[rym.config]
+# Proxy configuration
+proxy_enabled = false
+proxy_host = ""
+proxy_port = 0
+proxy_username = ""
+proxy_password = ""
+proxy_use_tls = false
+proxy_cert_path = ""
+
+# Proxy rotation method: "port" or "username"
+proxy_rotation_method = "port"
+auto_rotate_on_failure = true
+
+# Session management: "const", "sticky", or "rotate"
+session_type = "const"
+session_duration = 600
+session_id_length = 10
+port_range_start = 10001
+port_range_end = 10100
+
+# Browser and retry settings
+max_retries = 3
+retry_delay = 2.0
+page_timeout = 30000
+
+# Rate limiting
+min_request_interval = 3.0
+humanize_request_interval = true
+
+# Cache settings
+cache_enabled = true
+cache_expiry_days = 7
+
+# Resource blocking
+resource_blocking_enabled = true
+
+# Search matching
+matching_threshold = 0.8
+
+# Genre expansion
+expand_parent_genres = true
+genre_cache_expiry_days = 30
 
 [cli]
 # Print "Downloading {Album name}" etc. to screen
@@ -196,6 +255,8 @@ text_output = true
 progress_bars = true
 # The maximum number of search results to show in the interactive menu
 max_search_results = 100
+# Dry run mode - show what would be downloaded without actually downloading
+dry_run = false
 
 [misc]
 # Metadata to identify this config file. Do not change.

@@ -55,6 +55,19 @@ class Main:
             "soundcloud": SoundcloudClient(config),
         }
 
+        # Initialize RYM service if enabled (singleton for session)
+        self.rym_service = None
+        if config.session.rym.enabled:
+            try:
+                from ..config import APP_DIR
+                from ..metadata.rym_service import RymMetadataService
+                self.rym_service = RymMetadataService(config.session.rym, APP_DIR)
+                logger.info("RYM metadata enrichment enabled")
+            except ImportError:
+                logger.warning("RYM metadata enrichment enabled but rym_metadata package not available")
+            except Exception as e:
+                logger.warning(f"Failed to initialize RYM service: {e}")
+
         self.database: db.Database
 
         c = self.config.session.database
@@ -187,6 +200,246 @@ class Main:
                 f"Download completed with {failed_items} failed items out of {total_items} total items."
             )
 
+    async def resolve_enrich_and_rip(self):
+        """Pipeline: resolve → RYM enrich → download for each item"""
+
+        async def process_item(pending):
+            try:
+                # Step 1: Get metadata from streaming service
+                media = await pending.resolve()
+                if not media:
+                    return None
+
+                # Step 2: Enrich with RYM data (if enabled)
+                if self.rym_service:
+                    # For albums, enrich the album metadata directly
+                    if hasattr(media.meta, 'enrich_with_rym'):
+                        await media.meta.enrich_with_rym(self.rym_service)
+                    # For tracks, enrich the album metadata within the track
+                    elif hasattr(media.meta, 'album') and hasattr(media.meta.album, 'enrich_with_rym'):
+                        await media.meta.album.enrich_with_rym(self.rym_service)
+
+                # Step 3: Download audio and tag with enriched metadata
+                await media.rip()
+                return media
+
+            except Exception as e:
+                logger.error(f"Pipeline error for {pending}: {e}")
+                return None
+
+        # Process all items in parallel pipeline
+        with console.status("Processing downloads...", spinner="dots"):
+            results = await asyncio.gather(
+                *[process_item(p) for p in self.pending],
+                return_exceptions=True
+            )
+
+        # Handle results and cleanup
+        successful_items = [r for r in results if r is not None and not isinstance(r, Exception)]
+        failed_count = len(results) - len(successful_items)
+
+        if failed_count > 0:
+            logger.warning(f"{failed_count} items failed to process")
+
+        self.media.extend(successful_items)
+        self.pending.clear()
+
+    async def stream_process_urls(self, urls: list[str]):
+        """True streaming pipeline: process URLs and download items as they're discovered.
+
+        This eliminates all blocking by streaming items immediately rather than
+        batching them. Each album/track starts downloading as soon as it's discovered.
+        """
+        # Track all download tasks to ensure they complete
+        download_tasks = set()
+
+        async def process_single_item(media_item):
+            """Process a single album or track with RYM enrichment"""
+            try:
+                # RYM enrichment for albums and tracks
+                if hasattr(media_item, 'meta') and self.rym_service:
+                    # For albums, enrich the album metadata directly
+                    if hasattr(media_item.meta, 'enrich_with_rym'):
+                        await media_item.meta.enrich_with_rym(self.rym_service)
+                    # For tracks, enrich the album metadata within the track
+                    elif hasattr(media_item.meta, 'album') and hasattr(media_item.meta.album, 'enrich_with_rym'):
+                        await media_item.meta.album.enrich_with_rym(self.rym_service)
+
+                # Download the item
+                await media_item.rip()
+                return media_item
+            except Exception as e:
+                logger.error(f"Error processing item {media_item}: {e}")
+                return None
+
+        async def stream_from_url(url: str):
+            """Stream items from a single URL as they're discovered"""
+            try:
+                parsed = parse_url(url)
+                if parsed is None:
+                    logger.error(f"Unable to parse url {url}")
+                    return
+
+                client = await self.get_logged_in_client(parsed.source)
+                pending = await parsed.into_pending(client, self.config, self.database)
+
+                # Handle different URL types with streaming
+                if hasattr(pending, 'stream_albums'):
+                    # Artist/Label URLs - stream albums as discovered
+                    async for album in pending.stream_albums():
+                        # Start processing this album immediately
+                        task = asyncio.create_task(process_single_item(album))
+                        download_tasks.add(task)
+                        # Remove completed tasks to prevent memory buildup
+                        task.add_done_callback(download_tasks.discard)
+
+                elif hasattr(pending, 'stream_tracks'):
+                    # Playlist URLs - stream tracks as discovered
+                    async for track in pending.stream_tracks():
+                        # Process track immediately
+                        task = asyncio.create_task(process_single_item(track))
+                        download_tasks.add(task)
+                        # Remove completed tasks to prevent memory buildup
+                        task.add_done_callback(download_tasks.discard)
+
+                else:
+                    # Single album/track - resolve and process
+                    media = await pending.resolve()
+                    if media:
+                        await process_single_item(media)
+
+            except Exception as e:
+                logger.error(f"Error streaming from URL {url}: {e}")
+
+        # Process all URLs concurrently in streaming fashion
+        # Create tasks for each URL to process concurrently
+        url_tasks = [asyncio.create_task(stream_from_url(url)) for url in urls]
+
+        # Wait for all URL discovery to complete
+        await asyncio.gather(*url_tasks, return_exceptions=True)
+
+        # Now wait for all download tasks to complete
+        if download_tasks:
+            logger.info(f"Waiting for {len(download_tasks)} downloads to complete...")
+            await asyncio.gather(*download_tasks, return_exceptions=True)
+
+        logger.info("All streaming downloads completed")
+
+    async def stream_process_single_url(self, url: str):
+        """Stream process a single URL - convenience method"""
+        await self.stream_process_urls([url])
+
+    async def stream_process_pending(self):
+        """Stream process all currently pending items with RYM enrichment.
+
+        This is used for search and ID commands that add items to pending
+        without URLs.
+        """
+        if not self.pending:
+            return
+
+        download_tasks = set()
+
+        async def process_single_item(media_item):
+            """Process a single album or track with RYM enrichment"""
+            try:
+                # RYM enrichment for albums and tracks
+                if hasattr(media_item, 'meta') and self.rym_service:
+                    # For albums, enrich the album metadata directly
+                    if hasattr(media_item.meta, 'enrich_with_rym'):
+                        await media_item.meta.enrich_with_rym(self.rym_service)
+                    # For tracks, enrich the album metadata within the track
+                    elif hasattr(media_item.meta, 'album') and hasattr(media_item.meta.album, 'enrich_with_rym'):
+                        await media_item.meta.album.enrich_with_rym(self.rym_service)
+
+                # Download the item
+                await media_item.rip()
+                return media_item
+            except Exception as e:
+                logger.error(f"Error processing item {media_item}: {e}")
+                return None
+
+        # Process each pending item
+        for pending in self.pending:
+            try:
+                # Resolve the pending item
+                media = await pending.resolve()
+                if media:
+                    # Start processing this item immediately
+                    task = asyncio.create_task(process_single_item(media))
+                    download_tasks.add(task)
+                    # Remove completed tasks to prevent memory buildup
+                    task.add_done_callback(download_tasks.discard)
+
+            except Exception as e:
+                logger.error(f"Error resolving pending item {pending}: {e}")
+
+        # Wait for all download tasks to complete
+        if download_tasks:
+            logger.info(f"Waiting for {len(download_tasks)} downloads to complete...")
+            await asyncio.gather(*download_tasks, return_exceptions=True)
+
+        # Clear pending items
+        self.pending.clear()
+        logger.info("All streaming downloads completed")
+
+    async def stream_process_lastfm(self, playlist_url: str):
+        """Stream process a Last.fm playlist URL with RYM enrichment."""
+        c = self.config.session.lastfm
+        client = await self.get_logged_in_client(c.source)
+
+        if len(c.fallback_source) > 0:
+            fallback_client = await self.get_logged_in_client(c.fallback_source)
+        else:
+            fallback_client = None
+
+        pending_playlist = PendingLastfmPlaylist(
+            playlist_url,
+            client,
+            fallback_client,
+            self.config,
+            self.database,
+        )
+
+        # Track all download tasks to ensure they complete
+        download_tasks = set()
+
+        async def process_single_item(media_item):
+            """Process a single track with RYM enrichment"""
+            try:
+                # RYM enrichment for tracks
+                if hasattr(media_item, 'meta') and hasattr(media_item.meta, 'enrich_with_rym'):
+                    if self.rym_service:
+                        await media_item.meta.enrich_with_rym(self.rym_service)
+
+                # Download the item
+                await media_item.rip()
+                return media_item
+            except Exception as e:
+                logger.error(f"Error processing item {media_item}: {e}")
+                return None
+
+        # Stream tracks from the Last.fm playlist
+        if hasattr(pending_playlist, 'stream_tracks'):
+            async for track in pending_playlist.stream_tracks():
+                # Start processing this track immediately
+                task = asyncio.create_task(process_single_item(track))
+                download_tasks.add(task)
+                # Remove completed tasks to prevent memory buildup
+                task.add_done_callback(download_tasks.discard)
+        else:
+            # Fallback to old method if streaming not available
+            playlist = await pending_playlist.resolve()
+            if playlist:
+                await process_single_item(playlist)
+
+        # Wait for all download tasks to complete
+        if download_tasks:
+            logger.info(f"Waiting for {len(download_tasks)} downloads to complete...")
+            await asyncio.gather(*download_tasks, return_exceptions=True)
+
+        logger.info("All streaming downloads completed")
+
     async def search_interactive(self, source: str, media_type: str, query: str):
         client = await self.get_logged_in_client(source)
 
@@ -296,13 +549,29 @@ class Main:
             self.media.append(playlist)
 
     async def __aenter__(self):
+        # Initialize RYM service with async context manager
+        if self.rym_service:
+            try:
+                await self.rym_service.__aenter__()
+                logger.debug("RYM service initialized with session persistence")
+            except Exception as e:
+                logger.warning(f"Failed to initialize RYM session: {e}")
+                self.rym_service = None
         return self
 
-    async def __aexit__(self, *_):
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
         # Ensure all client sessions are closed
         for client in self.clients.values():
             if hasattr(client, "session"):
                 await client.session.close()
+
+        # Close RYM service if initialized with proper context manager exit
+        if self.rym_service:
+            try:
+                await self.rym_service.__aexit__(exc_type, exc_val, exc_tb)
+                logger.debug("RYM service closed with session state saved")
+            except Exception as e:
+                logger.warning(f"Error closing RYM service: {e}")
 
         # close global progress bar manager
         clear_progress()

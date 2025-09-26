@@ -85,9 +85,15 @@ def coro(f):
     help="Enable verbose output (debug mode)",
     is_flag=True,
 )
+@click.option(
+    "--dry-run",
+    help="Show what would be downloaded without actually downloading",
+    is_flag=True,
+    default=False,
+)
 @click.pass_context
 def rip(
-    ctx, config_path, folder, no_db, quality, codec, no_progress, no_ssl_verify, verbose
+    ctx, config_path, folder, no_db, quality, codec, no_progress, no_ssl_verify, verbose, dry_run
 ):
     """Streamrip: the all in one music downloader."""
     global logger
@@ -112,6 +118,10 @@ def rip(
     else:
         install(console=console, suppress=[click, asyncio], max_frames=1)
         logger.setLevel(logging.INFO)
+
+    # Enable RYM library logs to match streamrip verbosity
+    rym_logger = logging.getLogger("rym")
+    rym_logger.setLevel(logger.level)
 
     if not os.path.isfile(config_path):
         console.print(
@@ -161,6 +171,9 @@ def rip(
     if no_ssl_verify:
         c.session.downloads.verify_ssl = False
 
+    if dry_run:
+        c.session.cli.dry_run = True
+
     ctx.obj["config"] = c
 
 
@@ -188,9 +201,7 @@ async def url(ctx, urls):
                 version_coro = None
 
             async with Main(cfg) as main:
-                await main.add_all(urls)
-                await main.resolve()
-                await main.rip()
+                await main.stream_process_urls(urls)
 
             if version_coro is not None:
                 latest_version, notes = await version_coro
@@ -253,10 +264,7 @@ async def file(ctx, path):
                     console.print(
                         f"Detected list of urls. Loading [yellow]{len(items)}[/yellow] items"
                     )
-                    await main.add_all(items)
-
-                await main.resolve()
-                await main.rip()
+                    await main.stream_process_urls(items)
     except aiohttp.ClientConnectorCertificateError as e:
         from ..utils.ssl_utils import print_ssl_error_help
 
@@ -400,14 +408,14 @@ async def search(ctx, first, output_file, num_results, source, media_type, query
         async with Main(cfg) as main:
             if first:
                 await main.search_take_first(source, media_type, query)
+                await main.stream_process_pending()
             elif output_file:
                 await main.search_output_file(
                     source, media_type, query, output_file, num_results
                 )
             else:
                 await main.search_interactive(source, media_type, query)
-            await main.resolve()
-            await main.rip()
+                await main.stream_process_pending()
 
 
 @rip.command()
@@ -429,8 +437,7 @@ async def lastfm(ctx, source, fallback_source, url):
         config.session.lastfm.fallback_source = fallback_source
     with config as cfg:
         async with Main(cfg) as main:
-            await main.resolve_lastfm(url)
-            await main.rip()
+            await main.stream_process_lastfm(url)
 
 
 @rip.command()
@@ -444,8 +451,7 @@ async def id(ctx, source, media_type, id):
     with ctx.obj["config"] as cfg:
         async with Main(cfg) as main:
             await main.add_by_id(source, media_type, id)
-            await main.resolve()
-            await main.rip()
+            await main.stream_process_pending()
 
 
 async def latest_streamrip_version(verify_ssl: bool = True) -> tuple[str, str | None]:

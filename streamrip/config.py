@@ -209,6 +209,12 @@ class DownloadsConfig:
     verify_ssl: bool
     # When downloading user favorites tracks, download the entire album instead of just the track
     download_full_album_for_liked_tracks: bool
+    # Validate downloaded audio files for corruption
+    validate_audio: bool
+    # Retry downloads when validation fails
+    retry_on_validation_failure: bool
+    # Delete invalid audio files
+    delete_invalid_files: bool
 
 
 @dataclass(slots=True)
@@ -221,6 +227,38 @@ class LastFmConfig:
 
 
 @dataclass(slots=True)
+class RymConfig:
+    # Enable RateYourMusic metadata enrichment
+    enabled: bool
+    # How to handle RYM genres: "replace" existing or "append" to existing
+    genre_mode: str
+    # Raw config dict for RYM - any additional options will be passed directly to RYMConfig
+    config: dict
+
+    def get_rym_config(self, app_dir: str = ".") -> 'RYMConfig':
+        """Create RYMConfig instance from streamrip config values."""
+        try:
+            from rym import RYMConfig
+
+            # Start with the raw config dict
+            rym_config_kwargs = self.config.copy()
+
+            # Set sensible defaults for cache paths if not specified
+            if 'cache_dir' not in rym_config_kwargs:
+                rym_config_kwargs['cache_dir'] = f"{app_dir}/rym_cache"
+            if 'session_state_file_path' not in rym_config_kwargs:
+                rym_config_kwargs['session_state_file_path'] = f"{app_dir}/rym_session_state.json"
+
+            return RYMConfig(**rym_config_kwargs)
+        except ImportError:
+            return None
+        except TypeError as e:
+            import logging
+            logging.getLogger("streamrip").warning(f"Invalid RYM config parameters: {e}")
+            return None
+
+
+@dataclass(slots=True)
 class CliConfig:
     # Print "Downloading {Album name}" etc. to screen
     text_output: bool
@@ -228,6 +266,8 @@ class CliConfig:
     progress_bars: bool
     # The maximum number of search results to show in the interactive menu
     max_search_results: int
+    # Dry run mode - show what would be downloaded without actually downloading
+    dry_run: bool
 
 
 @dataclass(slots=True)
@@ -259,6 +299,7 @@ class ConfigData:
     soundcloud: SoundcloudConfig
     youtube: YoutubeConfig
     lastfm: LastFmConfig
+    rym: RymConfig
 
     filepaths: FilepathsConfig
     artwork: ArtworkConfig
@@ -289,6 +330,7 @@ class ConfigData:
         soundcloud = SoundcloudConfig(**toml["soundcloud"])  # type: ignore
         youtube = YoutubeConfig(**toml["youtube"])  # type: ignore
         lastfm = LastFmConfig(**toml["lastfm"])  # type: ignore
+        rym = RymConfig(**toml["rym"])  # type: ignore
         artwork = ArtworkConfig(**toml["artwork"])  # type: ignore
         filepaths = FilepathsConfig(**toml["filepaths"])  # type: ignore
         metadata = MetadataConfig(**toml["metadata"])  # type: ignore
@@ -307,6 +349,7 @@ class ConfigData:
             soundcloud=soundcloud,
             youtube=youtube,
             lastfm=lastfm,
+            rym=rym,
             artwork=artwork,
             filepaths=filepaths,
             metadata=metadata,
@@ -337,6 +380,7 @@ class ConfigData:
         update_toml_section_from_config(self.toml["soundcloud"], self.soundcloud)
         update_toml_section_from_config(self.toml["youtube"], self.youtube)
         update_toml_section_from_config(self.toml["lastfm"], self.lastfm)
+        update_toml_section_from_config(self.toml["rym"], self.rym)
         update_toml_section_from_config(self.toml["artwork"], self.artwork)
         update_toml_section_from_config(self.toml["filepaths"], self.filepaths)
         update_toml_section_from_config(self.toml["metadata"], self.metadata)

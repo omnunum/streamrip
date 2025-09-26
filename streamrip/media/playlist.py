@@ -196,6 +196,59 @@ class PendingPlaylist(Pending):
         ]
         return Playlist(name, self.config, self.client, tracks)
 
+    async def stream_tracks(self):
+        """Async generator that yields tracks as they're resolved.
+
+        This enables streaming: tracks start downloading immediately as they're
+        discovered, rather than waiting for all tracks to be resolved first.
+        """
+        try:
+            resp = await self.client.get_metadata(self.id, "playlist")
+        except NonStreamableError as e:
+            logger.error(
+                f"Playlist {self.id} not available to stream on {self.client.source} ({e})",
+            )
+            return
+
+        try:
+            meta = PlaylistMetadata.from_resp(resp, self.client.source)
+        except Exception as e:
+            logger.error(f"Error creating playlist: {e}")
+            return
+
+        name = meta.name
+        parent = self.config.session.downloads.folder
+        folder = os.path.join(parent, clean_filepath(name))
+
+        # Create folder for playlist
+        os.makedirs(folder, exist_ok=True)
+
+        # Stream tracks one by one
+        for position, track_id in enumerate(meta.ids()):
+            # Check if already downloaded
+            if self.db.downloaded(track_id):
+                logger.debug(f"Track {track_id} already downloaded, skipping")
+                continue
+
+            try:
+                pending_track = PendingPlaylistTrack(
+                    track_id,
+                    self.client,
+                    self.config,
+                    folder,
+                    name,
+                    position + 1,
+                    self.db,
+                )
+                track = await pending_track.resolve()
+
+                if track is not None:
+                    yield track
+
+            except Exception as e:
+                logger.error(f"Error resolving track {track_id}: {e}")
+                continue
+
 
 @dataclass(slots=True)
 class PendingLastfmPlaylist(Pending):
@@ -280,6 +333,70 @@ class PendingLastfmPlaylist(Pending):
             )
 
         return Playlist(playlist_title, self.config, self.client, pending_tracks)
+
+    async def stream_tracks(self):
+        """Async generator that yields tracks as they're resolved.
+
+        For Last.fm playlists, this searches for and downloads tracks as they're found.
+        """
+        try:
+            playlist_title, titles_artists = await self._parse_lastfm_playlist(
+                self.lastfm_url,
+            )
+        except Exception as e:
+            logger.error("Error occured while parsing last.fm page: %s", e)
+            return
+
+        parent = self.config.session.downloads.folder
+        folder = os.path.join(parent, clean_filepath(playlist_title))
+
+        # Create folder for playlist
+        os.makedirs(folder, exist_ok=True)
+
+        # Stream tracks as they're searched and found
+        for pos, (title, artist) in enumerate(titles_artists, start=1):
+            try:
+                # Search for the track
+                track_id, from_fallback = await self._make_query(
+                    f"{title} {artist}",
+                    self.Status(0, 0, len(titles_artists)),
+                    lambda: None
+                )
+
+                if track_id is None:
+                    logger.warning(f"No results found for {title} by {artist}")
+                    continue
+
+                # Use fallback client if needed
+                if from_fallback:
+                    assert self.fallback_client is not None
+                    client = self.fallback_client
+                else:
+                    client = self.client
+
+                # Check if already downloaded
+                if self.db.downloaded(track_id):
+                    logger.debug(f"Track {track_id} already downloaded, skipping")
+                    continue
+
+                # Create and resolve track
+                pending_track = PendingPlaylistTrack(
+                    track_id,
+                    client,
+                    self.config,
+                    folder,
+                    playlist_title,
+                    pos,
+                    self.db,
+                )
+                track = await pending_track.resolve()
+
+                if track is not None:
+                    yield track
+
+            except Exception as e:
+                logger.error(f"Error processing track {title} by {artist}: {e}")
+                continue
 
     async def _make_query(
         self,
