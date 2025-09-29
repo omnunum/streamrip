@@ -24,7 +24,6 @@ async def main():
     # Create RYM configuration
     rym_config = RymConfig(
         enabled=True,
-        cache_ttl_days=7,
         genre_mode="replace",  # "replace" or "append"
         proxy_enabled=False,
         proxy_host="",

@@ -1,5 +1,4 @@
 import logging
-from pathlib import Path
 from typing import Optional
 
 from ..config import RymConfig
@@ -15,127 +14,106 @@ except ImportError:
 
 
 class RymMetadataService:
+    """Minimal service for RYM integration with config and policy management."""
+
     def __init__(self, config: RymConfig, app_dir: str):
         self.config = config
-        self.app_dir = Path(app_dir)
-        self._scraper: Optional[RYMMetadataScraper] = None
-        # RYM library cache and session state both go in app_dir with separate subdirs
-        self._rym_cache_dir = str(self.app_dir / "rym_cache")
-        self._session_state_path = str(self.app_dir / "rym_session_state.json")
+        self.app_dir = app_dir
 
-    async def __aenter__(self):
-        """Async context manager entry."""
-        if RYM_AVAILABLE and self.config.enabled:
-            await self._initialize_scraper()
-        return self
+    async def get_release_metadata(self, artist: str, album: str, year: Optional[int] = None, album_type: str = "album"):
+        """Get RYM metadata with artist fallback.
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        if self._scraper is not None:
-            await self._scraper.__aexit__(exc_type, exc_val, exc_tb)
-            self._scraper = None
+        Args:
+            artist: Artist name
+            album: Album/release name
+            year: Release year (optional)
+            album_type: "album", "single", "ep", "compilation" (from streaming metadata)
 
-    async def _initialize_scraper(self):
-        """Initialize the RYM scraper with proper session management."""
-        if self._scraper is None:
-            logger.debug(f"Initializing RYM scraper with session state path: {self._session_state_path}")
-
-            # Use the new flexible config method
-            rym_config = self.config.get_rym_config(str(self.app_dir))
-            if rym_config is None:
-                logger.error("Failed to create RYM config - rym library not available or invalid config")
-                return
-
-            # Override cache and session paths with our app_dir-based paths
-            rym_config.cache_dir = self._rym_cache_dir
-            rym_config.session_state_file_path = self._session_state_path
-
-            self._scraper = await RYMMetadataScraper(rym_config).__aenter__()
-
-    def _get_scraper(self) -> Optional[RYMMetadataScraper]:
-        """Get the scraper instance. Should only be called after __aenter__."""
-        if not RYM_AVAILABLE or not self.config.enabled:
-            return None
-        return self._scraper
-
-
-    async def get_album_metadata(self, artist: str, album: str, year: Optional[int] = None) -> Optional[dict]:
-        """Get RYM metadata for an album."""
-        if not self.config.enabled:
+        Returns:
+            RYM metadata object (AlbumMetadata or ArtistMetadata) or None
+        """
+        # Feature switching
+        if not self.config.enabled or not RYM_AVAILABLE:
             return None
 
-        scraper = self._get_scraper()
-        if scraper is None:
+        # Config conversion
+        rym_config = self.config.get_rym_config(self.app_dir)
+        if not rym_config:
+            logger.debug("Failed to create RYM config")
             return None
 
         try:
-            logger.debug(f"Searching RYM for: artist=\"{artist}\", album=\"{album}\", year={year}")
+            # Use RYM library's context manager for automatic session management
+            async with RYMMetadataScraper(rym_config) as scraper:
+                logger.debug(f"RYM search: {artist} - {album} ({year}) [type: {album_type}]")
 
-            # Check if session state file exists for debugging
-            if Path(self._session_state_path).exists():
-                logger.debug(f"Session state file exists: {self._session_state_path}")
-            else:
-                logger.debug(f"Session state file does not exist: {self._session_state_path}")
+                # Step 1: Try album search with optimized flow built-in
+                # (cache → direct URL → artist ID cache → discography → artist search)
+                metadata = await scraper.get_album_metadata(artist, album, year, album_type)
 
-            metadata = await scraper.get_album_metadata(artist, album, year)
+                if metadata:
+                    logger.debug(f"RYM album search successful: {metadata.url}")
+                    return metadata
 
-            if metadata:
-                logger.debug(f"RYM search successful - found match: {metadata.url}")
+                # Step 2: Artist fallback
+                logger.debug(f"Album search failed, trying artist fallback: {artist}")
 
-                # Convert to dict for consistent interface
-                metadata_dict = {
-                    'genres': metadata.genres or [],
-                    'descriptors': metadata.descriptors or [],
-                    'rym_url': metadata.url or '',
-                    'rating': getattr(metadata, 'rating', None),
-                    'rating_count': getattr(metadata, 'rating_count', None)
-                }
+                artist_metadata = await scraper.get_artist_metadata(artist)
 
-                # Check if session state was created/updated
-                if Path(self._session_state_path).exists():
-                    logger.debug(f"Session state file updated after request: {self._session_state_path}")
+                if artist_metadata:
+                    logger.debug(f"RYM artist fallback successful: {artist_metadata.url}")
+                    return artist_metadata
 
-                return metadata_dict
-            else:
-                logger.debug(f"RYM search failed - no suitable match found for {artist} - {album} ({year})")
+                logger.debug(f"Both album and artist search failed for: {artist}")
                 return None
 
         except Exception as e:
-            logger.debug(f"Error fetching RYM metadata for {artist} - {album}: {e}")
+            logger.debug(f"Error in RYM search for {artist} - {album}: {e}")
             return None
 
-    def enrich_genres(self, existing_genres: list[str], rym_metadata: dict) -> list[str]:
-        """Enrich genres based on RYM data and config."""
-        if not rym_metadata or not rym_metadata.get('genres'):
+    def enrich_genres(self, existing_genres: list[str], rym_metadata) -> list[str]:
+        """Apply genre enrichment policy (replace vs append).
+
+        Args:
+            existing_genres: Current genres from streaming service
+            rym_metadata: RYM metadata object (AlbumMetadata or ArtistMetadata)
+
+        Returns:
+            Enriched genre list based on config policy
+        """
+        logger.debug(f"Genre enrichment - existing: {existing_genres}")
+
+        if not rym_metadata or not rym_metadata.genres:
+            logger.debug("No RYM metadata or genres found, keeping existing genres")
             return existing_genres
 
-        rym_genres = rym_metadata['genres']
+        rym_genres = rym_metadata.genres
+        logger.debug(f"RYM genres: {rym_genres}")
+        logger.debug(f"Genre mode: {self.config.genre_mode}")
 
         if self.config.genre_mode == "replace":
+            logger.debug(f"Replacing genres: {existing_genres} -> {rym_genres}")
             return rym_genres
         elif self.config.genre_mode == "append":
-            # Combine and deduplicate
+            # Combine and deduplicate while preserving order
             combined = existing_genres + rym_genres
-            return list(dict.fromkeys(combined))  # Preserves order while removing duplicates
+            result = list(dict.fromkeys(combined))
+            logger.debug(f"Appending genres: {existing_genres} + {rym_genres} -> {result}")
+            return result
         else:
             logger.warning(f"Unknown genre_mode: {self.config.genre_mode}, defaulting to replace")
             return rym_genres
 
-    def get_descriptors_string(self, rym_metadata: dict) -> Optional[str]:
-        """Get RYM descriptors as a string for tagging."""
-        if not rym_metadata or not rym_metadata.get('descriptors'):
+    def get_descriptors_string(self, rym_metadata) -> Optional[str]:
+        """Get RYM descriptors as a string for tagging.
+
+        Args:
+            rym_metadata: RYM metadata object (AlbumMetadata or ArtistMetadata)
+
+        Returns:
+            Comma-separated descriptors string or None
+        """
+        if not rym_metadata or not rym_metadata.descriptors:
             return None
 
-        descriptors = rym_metadata['descriptors']
-        return ", ".join(descriptors) if descriptors else None
-
-    async def close(self):
-        """Clean up resources."""
-        if self._scraper is not None:
-            try:
-                await self._scraper.__aexit__(None, None, None)
-                logger.debug("RYM scraper session closed and state saved")
-            except Exception as e:
-                logger.debug(f"Error closing RYM scraper: {e}")
-            finally:
-                self._scraper = None
+        return ", ".join(rym_metadata.descriptors) if rym_metadata.descriptors else None

@@ -70,13 +70,31 @@ class AlbumMetadata:
     def get_genres(self) -> str:
         return ", ".join(self.genre)
 
+    def _get_rym_album_type(self) -> str:
+        """Map streaming metadata to RYM album type."""
+        if not self.releasetype:
+            return "album"  # Default
+
+        release_type = self.releasetype.lower()
+
+        # Map streaming service types to RYM types
+        type_mapping = {
+            "ep": "ep",
+            "single": "single",
+            "compilation": "compilation",
+            "best of": "compilation",
+            "album": "album"
+        }
+
+        return type_mapping.get(release_type, "album")
+
     async def enrich_with_rym(self, rym_service):
-        """Enrich this album metadata with RateYourMusic data."""
-        if not rym_service or not rym_service.config.enabled:
+        """Enrich this album metadata with RateYourMusic data using comprehensive fallback strategy."""
+        if not rym_service:
             return
 
         try:
-            # Try to parse year as integer
+            # Parse year as integer
             year = None
             if self.year and self.year != "Unknown":
                 try:
@@ -84,18 +102,28 @@ class AlbumMetadata:
                 except ValueError:
                     year = None
 
-            rym_metadata = await rym_service.get_album_metadata(
-                self.albumartist, self.album, year
+            # Determine album type from streaming metadata
+            album_type = self._get_rym_album_type()
+
+            # Single call with comprehensive fallback built-in
+            # (album search with optimized flow → artist fallback if needed)
+            rym_metadata = await rym_service.get_release_metadata(
+                self.albumartist, self.album, year, album_type
             )
 
             if rym_metadata:
-                # Enrich genres
+                # Log what type of metadata we got for debugging
+                if hasattr(rym_metadata, 'album') and rym_metadata.album:
+                    logger.debug(f"RYM album enrichment: {self.albumartist} - {self.album}")
+                else:
+                    logger.debug(f"RYM artist fallback enrichment: {self.albumartist} - {self.album}")
+
+                # Apply genre enrichment policy through service
                 self.genre = rym_service.enrich_genres(self.genre, rym_metadata)
 
-                # Add descriptors
-                descriptors = rym_metadata.get('descriptors', [])
-                if descriptors:
-                    self.rym_descriptors = descriptors
+                # Add descriptors directly from RYM metadata object
+                if rym_metadata.descriptors:
+                    self.rym_descriptors = rym_metadata.descriptors
 
         except Exception as e:
             logger.debug(f"Failed to enrich {self.albumartist} - {self.album} with RYM data: {e}")

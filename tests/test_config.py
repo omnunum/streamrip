@@ -19,6 +19,7 @@ from streamrip.config import (
     MiscConfig,
     QobuzConfig,
     QobuzDiscographyFilterConfig,
+    RymConfig,
     SoundcloudConfig,
     TidalConfig,
     YoutubeConfig,
@@ -165,6 +166,9 @@ def test_sample_config_data_fields(sample_config_data):
             requests_per_minute=60,
             verify_ssl=True,
             download_full_album_for_liked_tracks=False,
+            validate_audio=True,
+            retry_on_validation_failure=True,
+            delete_invalid_files=True,
         ),
         qobuz=QobuzConfig(
             use_auth_token=False,
@@ -204,6 +208,17 @@ def test_sample_config_data_fields(sample_config_data):
             download_videos=False,
         ),
         lastfm=LastFmConfig(source="qobuz", fallback_source=""),
+        rym=RymConfig(
+            enabled=False,
+            genre_mode="replace",
+            config={
+                "proxy_enabled": False,
+                "proxy_host": "",
+                "proxy_port": 0,
+                "proxy_username": "",
+                "proxy_password": "",
+            },
+        ),
         filepaths=FilepathsConfig(
             add_singles_to_folder=False,
             folder_format="{albumartist} - {title} ({year}) [{container}] [{bit_depth}B-{sampling_rate}kHz]",
@@ -235,6 +250,7 @@ def test_sample_config_data_fields(sample_config_data):
             text_output=False,
             progress_bars=False,
             max_search_results=100,
+            dry_run=False,
         ),
         database=DatabaseConfig(
             downloads_enabled=True,

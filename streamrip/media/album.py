@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Optional
 
 from .. import progress
 from ..client import Client
@@ -14,6 +15,9 @@ from ..metadata import AlbumMetadata
 from .artwork import download_artwork
 from .media import Media, Pending
 from .track import PendingTrack
+
+if TYPE_CHECKING:
+    from ..download_task import DownloadTask
 
 logger = logging.getLogger("streamrip")
 
@@ -34,22 +38,9 @@ class Album(Media):
             await self._print_dry_run_info()
 
     async def download(self):
-        async def _resolve_and_download(pending: Pending):
-            try:
-                track = await pending.resolve()
-                if track is None:
-                    return
-                await track.rip()
-            except Exception as e:
-                logger.error(f"Error downloading track: {type(e).__name__}: {e}", exc_info=True)
-
-        results = await asyncio.gather(
-            *[_resolve_and_download(p) for p in self.tracks], return_exceptions=True
-        )
-
-        for result in results:
-            if isinstance(result, Exception):
-                logger.error(f"Album track processing error: {result}")
+        """No-op: Track downloads are now handled by Main's queue system."""
+        logger.debug(f"Album.download() called - tracks are handled by Main's queue system")
+        # Note: Individual tracks are queued by Main, not by Album
 
     async def _print_dry_run_info(self):
         """Print album information for dry run mode."""
