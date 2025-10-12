@@ -1,3 +1,4 @@
+import threading
 from dataclasses import dataclass
 from typing import Callable
 
@@ -18,8 +19,7 @@ from .console import console
 
 class ProgressManager:
     def __init__(self):
-        self.started = False
-        self.progress = Progress(console=console)
+        self._start_lock = threading.Lock()
         self.progress = Progress(
             TextColumn("[cyan]{task.description}"),
             BarColumn(bar_width=None),
@@ -37,9 +37,10 @@ class ProgressManager:
         self.live = Live(Group(self._text_cache, self.progress), refresh_per_second=10)
 
     def get_callback(self, total: int, desc: str):
-        if not self.started:
+        # Use lock to prevent race condition where multiple threads try to start simultaneously
+        # Rich's Live.start() is idempotent and tracks its own state internally
+        with self._start_lock:
             self.live.start()
-            self.started = True
 
         task = self.progress.add_task(f"[cyan]{desc}", total=total)
 
@@ -53,7 +54,7 @@ class ProgressManager:
         return Handle(_callback_update, _callback_done)
 
     def cleanup(self):
-        if self.started:
+        with self._start_lock:
             self.live.stop()
 
     def add_title(self, title: str):

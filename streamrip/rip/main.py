@@ -287,9 +287,9 @@ class Main:
                 await prompter.prompt_and_login()
                 prompter.save()
             else:
-                with console.status(f"[cyan]Logging into {source}", spinner="dots"):
-                    # Log into client using credentials from config
-                    await client.login()
+                # Log into client using credentials from config
+                # Note: Not using console.status() to avoid conflicts with concurrent logins
+                await client.login()
 
         assert client.logged_in
         return client
@@ -375,7 +375,10 @@ class Main:
                             task.add_done_callback(download_tasks.discard)
 
                 except Exception as e:
-                    logger.error(f"Error streaming from URL {url}: {e}")
+                    logger.error(
+                        f"Error streaming from URL {url}: {e}",
+                        exc_info=logger.level == logging.DEBUG
+                    )
 
             # Process all URLs concurrently in streaming fashion
             # Create tasks for each URL to process concurrently
