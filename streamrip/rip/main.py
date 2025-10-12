@@ -280,16 +280,20 @@ class Main:
             raise Exception(
                 f"No client named {source} available. Only have {self.clients.keys()}",
             )
-        if not client.logged_in:
-            prompter = get_prompter(client, self.config)
-            if not prompter.has_creds():
-                # Get credentials from user and log into client
-                await prompter.prompt_and_login()
-                prompter.save()
-            else:
-                # Log into client using credentials from config
-                # Note: Not using console.status() to avoid conflicts with concurrent logins
-                await client.login()
+
+        # Use lock to prevent concurrent login attempts to same client
+        # This prevents race condition where multiple coroutines check logged_in
+        # simultaneously and both call login(), creating orphaned aiohttp sessions
+        async with client._login_lock:
+            if not client.logged_in:
+                prompter = get_prompter(client, self.config)
+                if not prompter.has_creds():
+                    # Get credentials from user and log into client
+                    await prompter.prompt_and_login()
+                    prompter.save()
+                else:
+                    # Log into client using credentials from config
+                    await client.login()
 
         assert client.logged_in
         return client

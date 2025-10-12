@@ -38,8 +38,9 @@ class DeezerClient(Client):
     def __init__(self, config: Config):
         self.global_config = config
         self.logged_in = False
+        self._login_lock = asyncio.Lock()
         self.config = config.session.deezer
-        
+
         # Get config values
         requests_per_minute = getattr(config.session.downloads, 'requests_per_minute', 600)
         max_connections = getattr(config.session.downloads, 'max_connections', 10)
