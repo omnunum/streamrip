@@ -389,6 +389,8 @@ class Main:
                 logger.info(f"Waiting for {len(download_tasks)} downloads to complete...")
                 await asyncio.gather(*download_tasks, return_exceptions=True)
 
+            # Wait for download queue to be fully processed
+            await self.download_queue.join()
             logger.info("All streaming downloads completed")
 
         finally:
@@ -459,6 +461,9 @@ class Main:
                 logger.info(f"Waiting for {len(download_tasks)} downloads to complete...")
                 await asyncio.gather(*download_tasks, return_exceptions=True)
 
+            # Wait for download queue to be fully processed
+            await self.download_queue.join()
+
             # Clear pending items
             self.pending.clear()
             logger.info("All streaming downloads completed")
@@ -523,6 +528,8 @@ class Main:
             logger.info(f"Waiting for {len(download_tasks)} downloads to complete...")
             await asyncio.gather(*download_tasks, return_exceptions=True)
 
+        # Wait for download queue to be fully processed
+        await self.download_queue.join()
         logger.info("All streaming downloads completed")
 
     async def search_interactive(self, source: str, media_type: str, query: str):
