@@ -176,19 +176,15 @@ class Main:
         logger.debug(f"Download worker {name} stopped")
 
     async def _process_download_task(self, task: DownloadTask):
-        """Process a single download task (download + validate + tag)."""
+        """Process a single download task (download + validate + tag).
+
+        Note: RYM enrichment is handled at the album level in process_single_item()
+        before tracks are queued, so no enrichment needed here.
+        """
         # Resolve the track to get actual Track object
         track_media = await task.track.resolve()
         if not track_media:
             raise Exception("Failed to resolve track")
-
-        # RYM enrichment if enabled (limited by semaphore)
-        if self.rym_service and self.rym_semaphore and hasattr(track_media, 'meta'):
-            async with self.rym_semaphore:
-                if hasattr(track_media.meta, 'enrich_with_rym'):
-                    await track_media.meta.enrich_with_rym(self.rym_service)
-                elif hasattr(track_media.meta, 'album') and hasattr(track_media.meta.album, 'enrich_with_rym'):
-                    await track_media.meta.album.enrich_with_rym(self.rym_service)
 
         # Download and process the track
         await track_media.rip()

@@ -89,7 +89,18 @@ class AlbumMetadata:
         return type_mapping.get(release_type, "album")
 
     async def enrich_with_rym(self, rym_service):
-        """Enrich this album metadata with RateYourMusic data using comprehensive fallback strategy."""
+        """Enrich this album metadata with RateYourMusic data using comprehensive fallback strategy.
+
+        Uses rym_descriptors as state indicator:
+        - None: Not yet searched
+        - []: Searched but not found
+        - [...]: Searched and found with descriptors
+        """
+        # Skip if already enriched (rym_descriptors is not None means we already tried)
+        if self.rym_descriptors is not None:
+            logger.debug(f"RYM enrichment already attempted for: {self.albumartist} - {self.album}")
+            return
+
         if not rym_service:
             return
 
@@ -124,8 +135,17 @@ class AlbumMetadata:
                 # Add descriptors directly from RYM metadata object
                 if rym_metadata.descriptors:
                     self.rym_descriptors = rym_metadata.descriptors
+                else:
+                    # Found metadata but no descriptors
+                    self.rym_descriptors = []
+            else:
+                # No metadata found - mark as searched with empty list
+                self.rym_descriptors = []
+                logger.debug(f"RYM enrichment found no results for: {self.albumartist} - {self.album}")
 
         except Exception as e:
+            # Even on error, mark as attempted to avoid retrying on every track
+            self.rym_descriptors = []
             logger.debug(f"Failed to enrich {self.albumartist} - {self.album} with RYM data: {e}")
 
     def get_copyright(self) -> str | None:

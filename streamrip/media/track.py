@@ -149,7 +149,7 @@ class Track(Media):
             # Raise exception - let queue workers handle retry
             raise Exception(f"Audio validation failed: {validation_result.error_message}")
         else:
-            logger.debug(f"Audio validation passed: {self.download_path} (method: {validation_result.validation_method})")
+            logger.info(f"Audio validation passed for '{self.meta.title}' by {self.meta.artist} (method: {validation_result.validation_method})")
 
 
     async def _convert(self):

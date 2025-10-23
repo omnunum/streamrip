@@ -1,0 +1,41 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Local Streamrip Package",
+            "type": "python",
+            "request": "launch",
+            "module": "streamrip.rip.cli",
+            "args": ["-ndb", "url", "https://tidal.com/album/280979344"],
+            // "args": ["-ndb", "url", "https://www.deezer.com/en/profile/6629952041/loved"],
+            // "args": ["-ndb", "url", "https://play.qobuz.com/album/5019148614357"],
+            // "args": ["-ndb", "search", "qobuz", "artist", "berrymane"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "justMyCode": false
+        },
+        {
+            "name": "Debug Integration Tests",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["tests", "-v"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "justMyCode": false,
+            "env": {
+                "QOBUZ_EMAIL": "dababy3333@proton.me",
+                "QOBUZ_PASSWORD": "XKGxNp3KRQki8MyFX.oz",
+                "QOBUZ_APP_ID": "798273057",
+                "QOBUZ_SECRETS": "806331c3b0b641da923b890aed01d04a,f69a7734686cb9427629378a4b7ac381,abb21364945c0583309667d13ca3d93a",
+                "DEEZER_ARL": "03b069734ada2a184a5a3a6af35de39b9299ffc08b57c4a1a121d7624f44e5e3140ba5843a56d3b4e3c8f8a77cf7b125225a7f425fb85aa6d247a8654e222d80de054df6bac8d62972bcc73e7188c23db62442676c43c034e5ae044693fddf95",
+                "TIDAL_USER_ID": "",
+                "TIDAL_COUNTRY_CODE": "",
+                "TIDAL_ACCESS_TOKEN": "",
+                "TIDAL_REFRESH_TOKEN": ""
+            }
+        }
+    ]
+}

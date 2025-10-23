@@ -242,7 +242,7 @@ cache_expiry_days = 7
 resource_blocking_enabled = true
 
 # Search matching
-matching_threshold = 0.8
+matching_threshold = 0.85
 
 # Genre expansion
 expand_parent_genres = true
