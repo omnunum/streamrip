@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import functools
 import hashlib
 import itertools
@@ -18,8 +17,7 @@ import aiofiles
 import aiohttp
 import m3u8
 import requests
-from Cryptodome.Cipher import AES, Blowfish
-from Cryptodome.Util import Counter
+from Cryptodome.Cipher import Blowfish
 
 from .. import converter
 from ..exceptions import NonStreamableError
@@ -219,7 +217,6 @@ class TidalDownloadable(Downloadable):
         session: aiohttp.ClientSession,
         url: str | list[str] | None,
         codec: str,
-        encryption_key: str | None,
         restrictions,
     ):
         self.session = session
@@ -238,7 +235,7 @@ class TidalDownloadable(Downloadable):
                     words[0] + " " + " ".join(map(str.lower, words[1:])),
                 )
             raise NonStreamableError(
-                f"Tidal download: dl_info = {url, codec, encryption_key}"
+                f"Tidal download: dl_info = {url, codec, restrictions}"
             )
 
         # Support both single URL and list of segment URLs (for DASH)
@@ -250,7 +247,6 @@ class TidalDownloadable(Downloadable):
             self.url = url
             self.segment_urls = None
 
-        self.enc_key = encryption_key
         if not self.is_segmented:
             self.downloadable = BasicDownloadable(session, url, self.extension, "tidal")
 
@@ -259,14 +255,6 @@ class TidalDownloadable(Downloadable):
             await self._download_segments(path, callback)
         else:
             await self.downloadable._download(path, callback)
-
-        # Legacy MQA decryption - Tidal no longer uses MQA or encryption
-        # This code is kept for backwards compatibility but will typically not execute
-        # since modern Tidal manifests have encryptionType: "NONE"
-        if self.enc_key is not None:
-            dec_bytes = await self._decrypt_mqa_file(path, self.enc_key)
-            async with aiofiles.open(path, "wb") as audio:
-                await audio.write(dec_bytes)
 
     async def _download_segments(self, path: str, callback):
         """Download DASH segments and concatenate them."""
@@ -312,43 +300,6 @@ class TidalDownloadable(Downloadable):
             self._size_base = v
         else:
             self.downloadable._size = v
-
-    @staticmethod
-    async def _decrypt_mqa_file(in_path, encryption_key):
-        """Decrypt an MQA file.
-
-        :param in_path:
-        :param out_path:
-        :param encryption_key:
-        """
-
-        # Do not change this
-        master_key = "UIlTTEMmmLfGowo/UC60x2H45W6MdGgTRfo/umg4754="
-
-        # Decode the base64 strings to ascii strings
-        master_key = base64.b64decode(master_key)
-        security_token = base64.b64decode(encryption_key)
-
-        # Get the IV from the first 16 bytes of the securityToken
-        iv = security_token[:16]
-        encrypted_st = security_token[16:]
-
-        # Initialize decryptor
-        decryptor = AES.new(master_key, AES.MODE_CBC, iv)
-
-        # Decrypt the security token
-        decrypted_st = decryptor.decrypt(encrypted_st)
-
-        # Get the audio stream decryption key and nonce from the decrypted security token
-        key = decrypted_st[:16]
-        nonce = decrypted_st[16:24]
-
-        counter = Counter.new(64, prefix=nonce, initial_value=0)
-        decryptor = AES.new(key, AES.MODE_CTR, counter=counter)
-
-        async with aiofiles.open(in_path, "rb") as enc_file:
-            dec_bytes = decryptor.decrypt(await enc_file.read())
-            return dec_bytes
 
 
 class SoundcloudDownloadable(Downloadable):

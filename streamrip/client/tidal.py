@@ -219,10 +219,6 @@ class TidalClient(Client):
             else:  # JSONDecodeError
                 raise Exception(f"Failed to decode manifest for track {track_id}: {error_msg}")
 
-        enc_key = manifest_data.get("keyId")
-        if manifest_data.get("encryptionType") == "NONE":
-            enc_key = None
-
         # Handle both single URL and URL list formats
         urls = manifest_data.get("urls", [])
         if isinstance(urls, list) and len(urls) > 0:
@@ -234,7 +230,6 @@ class TidalClient(Client):
             self.session,
             url=url,
             codec=manifest_data["codecs"],
-            encryption_key=enc_key,
             restrictions=manifest_data.get("restrictions"),
         )
 
