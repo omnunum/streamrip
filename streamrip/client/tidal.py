@@ -5,6 +5,7 @@ import logging
 import re
 import time
 from json import JSONDecodeError
+from xml.etree import ElementTree as ET
 
 import aiohttp
 
@@ -18,9 +19,9 @@ logger = logging.getLogger("streamrip")
 BASE = "https://api.tidalhifi.com/v1"
 AUTH_URL = "https://auth.tidal.com/v1/oauth2"
 
-CLIENT_ID = base64.b64decode("elU0WEhWVmtjMnREUG80dA==").decode("iso-8859-1")
+CLIENT_ID = base64.b64decode("ZlgySnhkbW50WldLMGl4VA==").decode("iso-8859-1")
 CLIENT_SECRET = base64.b64decode(
-    "VkpLaERGcUpQcXZzUFZOQlY2dWtYVEptd2x2YnR0UDd3bE1scmM3MnNlND0=",
+    "MU5tNUFmREFqeHJnSkZKYktOV0xlQXlLR1ZHbUlOdVhQUExIVlhBdnhBZz0=",
 ).decode("iso-8859-1")
 AUTH = aiohttp.BasicAuth(login=CLIENT_ID, password=CLIENT_SECRET)
 STREAM_URL_REGEX = re.compile(
@@ -188,21 +189,29 @@ class TidalClient(Client):
 
     async def get_downloadable(self, track_id: str, quality: int):
         # Map generic quality int to Tidal-specific format
-        quality_map = ["LOW", "HIGH", "LOSSLESS", "HI_RES"]
+        quality_map = ["LOW", "HIGH", "LOSSLESS", "HI_RES_LOSSLESS"]
         tidal_quality = quality_map[quality]
-        
+
         params = {
             "audioquality": tidal_quality,
             "playbackmode": "STREAM",
             "assetpresentation": "FULL",
         }
-        
+
         try:
             resp = await self._api_request(
-                f"tracks/{track_id}/playbackinfopostpaywall", params
+                f"tracks/{track_id}/playbackinfo", params
             )
-            manifest = json.loads(base64.b64decode(resp["manifest"]).decode("utf-8"))
-            
+            manifest_b64 = resp["manifest"]
+            manifest_mime = resp.get("manifestMimeType", "application/vnd.tidal.bts")
+
+            # Parse manifest based on MIME type
+            if manifest_mime == "application/dash+xml":
+                manifest_data = await self._parse_dash_manifest(manifest_b64)
+            else:  # application/vnd.tidal.bts or fallback
+                manifest_decoded = base64.b64decode(manifest_b64).decode("utf-8")
+                manifest_data = json.loads(manifest_decoded)
+
         except (KeyError, JSONDecodeError) as e:
             error_msg = resp.get("userMessage", str(e)) if 'resp' in locals() else str(e)
             if isinstance(e, KeyError):
@@ -210,15 +219,23 @@ class TidalClient(Client):
             else:  # JSONDecodeError
                 raise Exception(f"Failed to decode manifest for track {track_id}: {error_msg}")
 
-        enc_key = manifest.get("keyId")
-        if manifest.get("encryptionType") == "NONE":
+        enc_key = manifest_data.get("keyId")
+        if manifest_data.get("encryptionType") == "NONE":
             enc_key = None
+
+        # Handle both single URL and URL list formats
+        urls = manifest_data.get("urls", [])
+        if isinstance(urls, list) and len(urls) > 0:
+            url = urls[0] if not isinstance(urls[0], list) else urls
+        else:
+            url = None
+
         return TidalDownloadable(
             self.session,
-            url=manifest["urls"][0],
-            codec=manifest["codecs"],
+            url=url,
+            codec=manifest_data["codecs"],
             encryption_key=enc_key,
-            restrictions=manifest.get("restrictions"),
+            restrictions=manifest_data.get("restrictions"),
         )
 
     async def get_video_file_url(self, video_id: str) -> str:
@@ -236,7 +253,7 @@ class TidalClient(Client):
             "assetpresentation": "FULL",
         }
         resp = await self._api_request(
-            f"videos/{video_id}/playbackinfopostpaywall", params=params
+            f"videos/{video_id}/playbackinfo", params=params
         )
         manifest = json.loads(base64.b64decode(resp["manifest"]).decode("utf-8"))
         async with self.session.get(manifest["urls"][0]) as resp:
@@ -247,6 +264,70 @@ class TidalClient(Client):
         *_, last_match = STREAM_URL_REGEX.finditer(available_urls.text)
 
         return last_match.group(1)
+
+    async def _parse_dash_manifest(self, manifest_b64: str) -> dict:
+        """Parse DASH XML manifest into a format compatible with TidalDownloadable.
+
+        DASH manifests use MPEG-DASH format with segment templates.
+        Returns a dict with: urls (list of segment URLs), codecs, encryptionType
+        """
+        try:
+            manifest_xml = base64.b64decode(manifest_b64).decode("utf-8")
+            root = ET.fromstring(manifest_xml)
+
+            # Define XML namespace for DASH
+            ns = {"mpd": "urn:mpeg:dash:schema:mpd:2011"}
+
+            # Find the first Representation element (highest quality is typically listed first or last)
+            representation = root.find(".//mpd:Representation", ns)
+            if representation is None:
+                raise Exception("No Representation found in DASH manifest")
+
+            # Extract codec info
+            codecs = representation.get("codecs", "flac")
+
+            # Find SegmentTemplate
+            segment_template = representation.find(".//mpd:SegmentTemplate", ns)
+            if segment_template is None:
+                raise Exception("No SegmentTemplate found in DASH manifest")
+
+            # Get media URL template and initialization URL
+            media_template = segment_template.get("media")
+            initialization = segment_template.get("initialization")
+            start_number = int(segment_template.get("startNumber", "0"))
+
+            # Get SegmentTimeline to determine number of segments
+            timeline = segment_template.find("mpd:SegmentTimeline", ns)
+            if timeline is None:
+                raise Exception("No SegmentTimeline found in DASH manifest")
+
+            segments = timeline.findall("mpd:S", ns)
+
+            # Calculate total number of segments from timeline
+            segment_urls = []
+            segment_number = start_number
+
+            for seg in segments:
+                repeat = int(seg.get("r", "0"))
+                # r=-1 means repeat until end, r=0 means 1 segment, r=N means N+1 segments
+                num_segments = repeat + 1 if repeat >= 0 else 1
+
+                for _ in range(num_segments):
+                    # Replace $Number$ placeholder with actual segment number
+                    url = media_template.replace("$Number$", str(segment_number))
+                    segment_urls.append(url)
+                    segment_number += 1
+
+            # Return in BTS manifest-compatible format
+            return {
+                "urls": segment_urls,
+                "codecs": codecs,
+                "encryptionType": "NONE",  # DASH manifests from tiddl analysis show no encryption
+                "mimeType": f"audio/{codecs}",
+            }
+
+        except ET.ParseError as e:
+            raise Exception(f"Failed to parse DASH XML manifest: {e}")
 
     # ---------- Login Utilities ---------------
 
@@ -307,14 +388,23 @@ class TidalClient(Client):
             "scope": "r_usr+w_usr+w_sub",
         }
         logger.debug("Checking with %s", data)
-        resp = await self._api_post(f"{AUTH_URL}/token", data, AUTH)
+        resp = await self._api_post(f"{AUTH_URL}/token", data, AUTH, allow_http_errors=True)
 
+        # Handle Tidal's response format
         if "status" in resp and resp["status"] != 200:
-            if resp["status"] == 400 and resp["sub_status"] == 1002:
-                return 2, {}
+            if resp["status"] == 400 and resp.get("sub_status") == 1002:
+                return 2, {}  # Authorization pending
             else:
-                return 1, {}
+                return 1, {}  # Error
 
+        # Check if we got an error in standard OAuth error format
+        if "error" in resp:
+            if resp["error"] == "authorization_pending":
+                return 2, {}  # Authorization pending (standard OAuth2 format)
+            else:
+                return 1, {}  # Other error
+
+        # Success - extract token data
         ret = {}
         ret["user_id"] = resp["user"]["userId"]
         ret["country_code"] = resp["user"]["countryCode"]
@@ -363,11 +453,12 @@ class TidalClient(Client):
 
     # ---------- API Request Utilities ---------------
 
-    async def _api_post(self, url, data, auth: aiohttp.BasicAuth | None = None) -> dict:
+    async def _api_post(self, url, data, auth: aiohttp.BasicAuth | None = None, allow_http_errors: bool = False) -> dict:
         """Post to the Tidal API with retry logic for rate limiting."""
         return await self._request_with_retry(
-            lambda: self.session.post(url, data=data, auth=auth), 
-            f"POST {url}"
+            lambda: self.session.post(url, data=data, auth=auth),
+            f"POST {url}",
+            allow_http_errors=allow_http_errors
         )
 
     async def _api_request(self, path: str, params=None, base: str = BASE) -> dict:
@@ -383,33 +474,45 @@ class TidalClient(Client):
             path
         )
 
-    async def _request_with_retry(self, request_func, name: str, max_retries: int = 3) -> dict:
-        """Generic retry logic for API requests."""
+    async def _request_with_retry(self, request_func, name: str, max_retries: int = 3, allow_http_errors: bool = False) -> dict:
+        """Generic retry logic for API requests.
+
+        Args:
+            request_func: Function that returns an aiohttp request
+            name: Name of the request for logging
+            max_retries: Maximum number of retries
+            allow_http_errors: If True, don't raise on HTTP errors (for OAuth polling)
+        """
         for attempt in range(max_retries + 1):
             async with self.rate_limiter:
                 async with await request_func() as resp:
-                    if resp.status == 404:
-                        raise NonStreamableError("TIDAL: Not found")
-                    
-                    if resp.status == 401:
-                        raise NonStreamableError("TIDAL: Unauthorized - may be due to geo restrictions or quality not available with current subscription")
-                    
-                    if resp.status == 429:
-                        if attempt == max_retries:
-                            resp.raise_for_status()
-                        
-                        retry_after = resp.headers.get('Retry-After', '2')
-                        try:
-                            wait_time = min(int(retry_after), 60)
-                        except ValueError:
-                            wait_time = min(2 ** attempt, 60)
-                        
-                        logger.warning(f"Rate limited on {name}, waiting {wait_time}s")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    
-                    resp.raise_for_status()
+                    # Handle error responses (unless OAuth polling where errors are expected)
+                    if not allow_http_errors:
+                        if resp.status == 404:
+                            raise NonStreamableError("TIDAL: Not found")
+
+                        if resp.status == 401:
+                            raise NonStreamableError("TIDAL: Unauthorized - may be due to geo restrictions or quality not available with current subscription")
+
+                        if resp.status == 429:
+                            # Rate limiting - retry with backoff
+                            if attempt == max_retries:
+                                resp.raise_for_status()
+
+                            retry_after = resp.headers.get('Retry-After', '2')
+                            try:
+                                wait_time = min(int(retry_after), 60)
+                            except ValueError:
+                                wait_time = min(2 ** attempt, 60)
+
+                            logger.warning(f"Rate limited on {name}, waiting {wait_time}s")
+                            await asyncio.sleep(wait_time)
+                            continue
+
+                        # Catch any other HTTP errors (500, 403, etc.)
+                        resp.raise_for_status()
+
                     json_data = await resp.json()
                     return json_data
-        
+
         raise Exception(f"Failed request after {max_retries} retries")

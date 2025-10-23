@@ -211,13 +211,13 @@ class DeezerDownloadable(Downloadable):
 
 class TidalDownloadable(Downloadable):
     """A wrapper around BasicDownloadable that includes Tidal-specific
-    error messages.
+    error messages. Supports both single-URL and multi-segment (DASH) downloads.
     """
 
     def __init__(
         self,
         session: aiohttp.ClientSession,
-        url: str | None,
+        url: str | list[str] | None,
         codec: str,
         encryption_key: str | None,
         restrictions,
@@ -240,24 +240,78 @@ class TidalDownloadable(Downloadable):
             raise NonStreamableError(
                 f"Tidal download: dl_info = {url, codec, encryption_key}"
             )
-        self.url = url
+
+        # Support both single URL and list of segment URLs (for DASH)
+        self.is_segmented = isinstance(url, list)
+        if self.is_segmented:
+            self.segment_urls = url
+            self.url = url[0] if url else None  # For size() method
+        else:
+            self.url = url
+            self.segment_urls = None
+
         self.enc_key = encryption_key
-        self.downloadable = BasicDownloadable(session, url, self.extension, "tidal")
+        if not self.is_segmented:
+            self.downloadable = BasicDownloadable(session, url, self.extension, "tidal")
 
     async def _download(self, path: str, callback):
-        await self.downloadable._download(path, callback)
+        if self.is_segmented:
+            await self._download_segments(path, callback)
+        else:
+            await self.downloadable._download(path, callback)
+
+        # Legacy MQA decryption - Tidal no longer uses MQA or encryption
+        # This code is kept for backwards compatibility but will typically not execute
+        # since modern Tidal manifests have encryptionType: "NONE"
         if self.enc_key is not None:
             dec_bytes = await self._decrypt_mqa_file(path, self.enc_key)
             async with aiofiles.open(path, "wb") as audio:
                 await audio.write(dec_bytes)
 
+    async def _download_segments(self, path: str, callback):
+        """Download DASH segments and concatenate them."""
+        segment_paths = []
+
+        try:
+            # Download all segments
+            for i, segment_url in enumerate(self.segment_urls):
+                segment_path = generate_temp_path(f"{segment_url}_{i}")
+                segment_paths.append(segment_path)
+
+                async with self.session.get(segment_url) as resp:
+                    resp.raise_for_status()
+                    async with aiofiles.open(segment_path, "wb") as f:
+                        content = await resp.read()
+                        await f.write(content)
+                        callback(len(content))
+
+            # Concatenate all segments into final file
+            async with aiofiles.open(path, "wb") as outfile:
+                for segment_path in segment_paths:
+                    async with aiofiles.open(segment_path, "rb") as infile:
+                        content = await infile.read()
+                        await outfile.write(content)
+
+        finally:
+            # Clean up temporary segment files
+            for segment_path in segment_paths:
+                try:
+                    os.remove(segment_path)
+                except FileNotFoundError:
+                    pass
+
     @property
     def _size(self):
+        if self.is_segmented:
+            return self._size_base
         return self.downloadable._size
 
     @_size.setter
     def _size(self, v):
-        self.downloadable._size = v
+        if self.is_segmented:
+            self._size_base = v
+        else:
+            self.downloadable._size = v
 
     @staticmethod
     async def _decrypt_mqa_file(in_path, encryption_key):
