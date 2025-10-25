@@ -6,7 +6,7 @@ ENV PUID=99 \
     UMASK=002
 
 # Layer 1: System dependencies (rarely changes)
-# Install all required packages for Python, Playwright, and Camoufox
+# Single layer to avoid file duplication across layers
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Python build tools
     python3 \
@@ -46,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Audio validation tools
     flac \
     ffmpeg \
-    # Permission handling (replaces su-exec)
+    # Permission handling
     gosu \
     # Cron for scheduling
     cron \
@@ -62,15 +62,12 @@ RUN ln -s /usr/bin/python3 /usr/bin/python && \
     poetry install --only main --no-root && \
     pip3 uninstall -y poetry
 
-# Layer 3: Camoufox pre-cache (~610MB, rarely changes)
-# Pre-download browser binaries, addons, and GeoIP data
-# Use /root during build, then copy to /config for runtime
-ENV HOME=/root
+# Layer 3: Install Camoufox packages and download browserforge data (browser/GeoIP downloaded at runtime)
 RUN pip3 install --no-cache-dir camoufox "camoufox[geoip]" && \
-    python3 -m camoufox fetch && \
-    python3 -c "from camoufox.locale import download_mmdb; download_mmdb()" 2>/dev/null || true && \
-    mkdir -p /config/.cache && \
-    cp -r /root/.cache/camoufox /config/.cache/ 2>/dev/null || true
+    python3 -m browserforge update && \
+    pip3 cache purge && \
+    find /usr/local/lib/python3.*/dist-packages -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local/lib/python3.*/dist-packages -type f -name "*.pyc" -delete 2>/dev/null || true
 
 # Layer 4: Streamrip code (changes frequently, rebuilds quickly)
 COPY . /app/
@@ -93,6 +90,34 @@ RUN mv /usr/local/bin/rip /usr/local/bin/rip.bin && \
       > /usr/local/bin/rip && \
     chmod +x /usr/local/bin/rip
 
+# Camoufox setup script - runs on container start before rip
+RUN mkdir -p /etc/cont-init.d && \
+    printf '%s\n' \
+      '#!/usr/bin/with-contenv bash' \
+      'set -e' \
+      '' \
+      'if [ ! -d "/config/.cache/camoufox" ] || [ -z "$(ls -A /config/.cache/camoufox 2>/dev/null)" ]; then' \
+      '    echo "================================================"' \
+      '    echo "[Camoufox Setup] First run detected!"' \
+      '    echo "[Camoufox Setup] Downloading browser binaries and GeoIP data (~2.8GB)"' \
+      '    echo "[Camoufox Setup] This will take 2-5 minutes depending on your connection..."' \
+      '    echo "================================================"' \
+      '    ' \
+      '    export HOME=/config' \
+      '    python3 -m camoufox fetch' \
+      '    ' \
+      '    chown -R ${PUID}:${PGID} /config/.cache 2>/dev/null || true' \
+      '    ' \
+      '    echo "================================================"' \
+      '    echo "[Camoufox Setup] Download complete!"' \
+      '    echo "[Camoufox Setup] Browser cache stored in /config/.cache/camoufox"' \
+      '    echo "================================================"' \
+      'else' \
+      '    echo "[Camoufox Setup] Browser cache found at /config/.cache/camoufox, skipping download"' \
+      'fi' \
+      > /etc/cont-init.d/10-setup-camoufox && \
+    chmod +x /etc/cont-init.d/10-setup-camoufox
+
 # single job script used both at startup and daily; imports env via s6
 RUN mkdir -p /etc/periodic/daily && \
     printf '%s\n' \
@@ -104,9 +129,8 @@ RUN mkdir -p /etc/periodic/daily && \
       > /etc/periodic/daily/rip-tidal && \
     chmod +x /etc/periodic/daily/rip-tidal
 
-# run once on container start
-RUN mkdir -p /etc/cont-init.d && \
-    ln -s /etc/periodic/daily/rip-tidal /etc/cont-init.d/99-run-rip-once
+# run once on container start (after camoufox setup)
+RUN ln -s /etc/periodic/daily/rip-tidal /etc/cont-init.d/99-run-rip-once
 
 # cron setup (4 AM EDT daily) - Ubuntu uses /etc/cron.d/
 RUN printf '%s\n' \
