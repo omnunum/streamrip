@@ -75,6 +75,9 @@ RUN pip3 install --no-cache-dir camoufox "camoufox[geoip]" && \
 COPY . /app/
 RUN cd /app && \
     pip3 install --no-cache-dir . && \
+    # Ensure browserforge/camoufox files are readable after streamrip install
+    chmod -R a+rX /usr/local/lib/python3.*/dist-packages/browserforge 2>/dev/null || true && \
+    chmod -R a+rX /usr/local/lib/python3.*/dist-packages/camoufox 2>/dev/null || true && \
     # Cleanup build dependencies to reduce image size
     apt-get purge -y gcc g++ python3-dev libxml2-dev libxslt-dev && \
     apt-get autoremove -y && \
