@@ -102,17 +102,22 @@ RUN mv /usr/local/bin/rym-tag /usr/local/bin/rym-tag.bin && \
       'set -e' \
       'export HOME=/config' \
       '' \
-      '# Helper function to extract config value using Python TOML parser (tomlkit already installed via streamrip)' \
+      '# Helper function to extract config value from [rym.config] section' \
       'get_config_value() {' \
       '    local key="$1"' \
-      '    python3 -c "import tomlkit; config = tomlkit.load(open(\"$CONFIG_FILE\", \"r\")); value = config.get(\"rym\", {}).get(\"config\", {}).get(\"$key\"); print(value if value is not None else \"\")"' \
+      '    local value=$(grep -A20 "^\[rym\.config\]" "$CONFIG_FILE" | grep "^$key" | awk -F"\"" '"'"'{print $2}'"'"')' \
+      '    # If no quoted value, try unquoted (for booleans and numbers)' \
+      '    if [ -z "$value" ]; then' \
+      '        value=$(grep -A20 "^\[rym\.config\]" "$CONFIG_FILE" | grep "^$key" | sed '"'"'s/^[^=]*=[[:space:]]*\([^#]*\)/\1/'"'"' | sed '"'"'s/[[:space:]]*$//'"'"')' \
+      '    fi' \
+      '    echo "$value"' \
       '}' \
       '' \
       '# Read proxy config from streamrip config.toml if it exists' \
       'CONFIG_FILE="/config/.config/streamrip/config.toml"' \
       'if [ -f "$CONFIG_FILE" ]; then' \
       '    PROXY_ENABLED=$(get_config_value "proxy_enabled")' \
-      '    if [ "$PROXY_ENABLED" = "True" ]; then' \
+      '    if [ "$PROXY_ENABLED" = "true" ]; then' \
       '        export PROXY_HOST=$(get_config_value "proxy_host")' \
       '        export PROXY_PORT=$(get_config_value "proxy_port")' \
       '        export PROXY_USERNAME=$(get_config_value "proxy_username")' \
