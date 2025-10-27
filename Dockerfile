@@ -102,17 +102,17 @@ RUN mv /usr/local/bin/rym-tag /usr/local/bin/rym-tag.bin && \
       'set -e' \
       'export HOME=/config' \
       '' \
-      '# Helper function to extract config value from [rym.config] section' \
+      '# Helper function to extract config value using Python TOML parser' \
       'get_config_value() {' \
       '    local key="$1"' \
-      '    grep -A10 "^\[rym\.config\]" "$CONFIG_FILE" | grep "^$key" | sed "s/.*= *//;s/\"//g" | head -1' \
+      '    python3 -c "import tomllib; config = tomllib.load(open(\"$CONFIG_FILE\", \"rb\")); value = config.get(\"rym\", {}).get(\"config\", {}).get(\"$key\"); print(value if value is not None else \"\")"' \
       '}' \
       '' \
       '# Read proxy config from streamrip config.toml if it exists' \
       'CONFIG_FILE="/config/.config/streamrip/config.toml"' \
       'if [ -f "$CONFIG_FILE" ]; then' \
       '    PROXY_ENABLED=$(get_config_value "proxy_enabled")' \
-      '    if [ "$PROXY_ENABLED" = "true" ]; then' \
+      '    if [ "$PROXY_ENABLED" = "True" ]; then' \
       '        export PROXY_HOST=$(get_config_value "proxy_host")' \
       '        export PROXY_PORT=$(get_config_value "proxy_port")' \
       '        export PROXY_USERNAME=$(get_config_value "proxy_username")' \
