@@ -65,6 +65,8 @@ RUN ln -s /usr/bin/python3 /usr/bin/python && \
 # Layer 3: Install Camoufox packages and download browserforge data (browser/GeoIP downloaded at runtime)
 RUN pip3 install --no-cache-dir camoufox "camoufox[geoip]" && \
     python3 -m browserforge update && \
+    chmod -R a+rX /usr/local/lib/python3.*/dist-packages/browserforge 2>/dev/null || true && \
+    chmod -R a+rX /usr/local/lib/python3.*/dist-packages/camoufox 2>/dev/null || true && \
     pip3 cache purge && \
     find /usr/local/lib/python3.*/dist-packages -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
     find /usr/local/lib/python3.*/dist-packages -type f -name "*.pyc" -delete 2>/dev/null || true
