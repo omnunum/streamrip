@@ -102,10 +102,10 @@ RUN mv /usr/local/bin/rym-tag /usr/local/bin/rym-tag.bin && \
       'set -e' \
       'export HOME=/config' \
       '' \
-      '# Helper function to extract config value using Python TOML parser' \
+      '# Helper function to extract config value using Python TOML parser (tomlkit already installed via streamrip)' \
       'get_config_value() {' \
       '    local key="$1"' \
-      '    python3 -c "import tomllib; config = tomllib.load(open(\"$CONFIG_FILE\", \"rb\")); value = config.get(\"rym\", {}).get(\"config\", {}).get(\"$key\"); print(value if value is not None else \"\")"' \
+      '    python3 -c "import tomlkit; config = tomlkit.load(open(\"$CONFIG_FILE\", \"r\")); value = config.get(\"rym\", {}).get(\"config\", {}).get(\"$key\"); print(value if value is not None else \"\")"' \
       '}' \
       '' \
       '# Read proxy config from streamrip config.toml if it exists' \
