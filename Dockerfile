@@ -95,6 +95,36 @@ RUN mv /usr/local/bin/rip /usr/local/bin/rip.bin && \
       > /usr/local/bin/rip && \
     chmod +x /usr/local/bin/rip
 
+# Create rym-tag wrapper that reads proxy config from streamrip config
+RUN mv /usr/local/bin/rym-tag /usr/local/bin/rym-tag.bin && \
+    printf '%s\n' \
+      '#!/bin/bash' \
+      'set -e' \
+      'export HOME=/config' \
+      '' \
+      '# Helper function to extract config value from [rym.config] section' \
+      'get_config_value() {' \
+      '    local key="$1"' \
+      '    grep -A10 "^\[rym\.config\]" "$CONFIG_FILE" | grep "^$key" | sed "s/.*= *//;s/\"//g" | head -1' \
+      '}' \
+      '' \
+      '# Read proxy config from streamrip config.toml if it exists' \
+      'CONFIG_FILE="/config/.config/streamrip/config.toml"' \
+      'if [ -f "$CONFIG_FILE" ]; then' \
+      '    PROXY_ENABLED=$(get_config_value "proxy_enabled")' \
+      '    if [ "$PROXY_ENABLED" = "true" ]; then' \
+      '        export PROXY_HOST=$(get_config_value "proxy_host")' \
+      '        export PROXY_PORT=$(get_config_value "proxy_port")' \
+      '        export PROXY_USERNAME=$(get_config_value "proxy_username")' \
+      '        export PROXY_PASSWORD=$(get_config_value "proxy_password")' \
+      '    fi' \
+      'fi' \
+      '' \
+      'cd /downloads' \
+      'exec gosu ${PUID:-99}:${PGID:-100} env HOME=/config PROXY_HOST="$PROXY_HOST" PROXY_PORT="$PROXY_PORT" PROXY_USERNAME="$PROXY_USERNAME" PROXY_PASSWORD="$PROXY_PASSWORD" /usr/local/bin/rym-tag.bin "$@"' \
+      > /usr/local/bin/rym-tag && \
+    chmod +x /usr/local/bin/rym-tag
+
 # Camoufox setup script - runs on container start before rip
 RUN mkdir -p /etc/cont-init.d && \
     printf '%s\n' \
