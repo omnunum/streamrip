@@ -55,7 +55,7 @@ MP4_KEYS = (
     "----:com.apple.iTunes:ALBUM_ARTIST_CREDIT",
     "----:com.apple.iTunes:ORIGINALDATE",  # was ORIGINAL_RELEASE_DATE
     "----:com.apple.iTunes:MEDIA_TYPE",
-    "----:com.apple.iTunes:RYM_DESCRIPTORS",
+    "----:com.apple.iTunes:RYM_DESCRIPTOR",
 )
 
 MP3_KEYS = (
@@ -140,6 +140,8 @@ METADATA_TYPES = (
 
 
 FLAC_KEY = {v: v.upper() for v in METADATA_TYPES}
+# Override to use singular form for RYM descriptor tag (following Vorbis comment convention)
+FLAC_KEY['rym_descriptors'] = 'RYM_DESCRIPTOR'
 MP4_KEY = dict(zip(METADATA_TYPES, MP4_KEYS))
 MP3_KEY = dict(zip(METADATA_TYPES, MP3_KEYS))
 
@@ -241,7 +243,9 @@ class Container(Enum):
                 # Handle as TXXX custom tags
                 text = self._attr_from_meta(meta, k)
                 if text is not None:
-                    out.append((f"TXXX:{k.upper()}", str(text)))
+                    # Use singular form for RYM descriptor tag (following tag convention)
+                    tag_key = "RYM_DESCRIPTOR" if k == "rym_descriptors" else k.upper()
+                    out.append((f"TXXX:{tag_key}", str(text)))
                 continue
             else:
                 text = self._attr_from_meta(meta, k)
