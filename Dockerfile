@@ -189,6 +189,6 @@ RUN mkdir -p /etc/services.d/crond && \
 # Set runtime HOME to /config for user access to cached browser
 ENV HOME=/config
 
-VOLUME /config /downloads
+VOLUME /config /downloads /library
 WORKDIR /downloads
 # no CMD (LSIO uses /init)
