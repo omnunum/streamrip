@@ -105,10 +105,11 @@ RUN mv /usr/local/bin/rym-tag /usr/local/bin/rym-tag.bin && \
       '# Helper function to extract config value from [rym.config] section' \
       'get_config_value() {' \
       '    local key="$1"' \
-      '    local value=$(grep -A20 "^\[rym\.config\]" "$CONFIG_FILE" | grep "^$key" | awk -F"\"" '"'"'{print $2}'"'"')' \
+      '    # Extract entire [rym.config] section (from [rym.config] to next [ or end of file)' \
+      '    local value=$(sed -n '"'"'/^\[rym\.config\]/,/^\[/p'"'"' "$CONFIG_FILE" | grep "^$key" | awk -F"\"" '"'"'{print $2}'"'"')' \
       '    # If no quoted value, try unquoted (for booleans and numbers)' \
       '    if [ -z "$value" ]; then' \
-      '        value=$(grep -A20 "^\[rym\.config\]" "$CONFIG_FILE" | grep "^$key" | sed '"'"'s/^[^=]*=[[:space:]]*\([^#]*\)/\1/'"'"' | sed '"'"'s/[[:space:]]*$//'"'"')' \
+      '        value=$(sed -n '"'"'/^\[rym\.config\]/,/^\[/p'"'"' "$CONFIG_FILE" | grep "^$key" | sed '"'"'s/^[^=]*=[[:space:]]*\([^#]*\)/\1/'"'"' | sed '"'"'s/[[:space:]]*$//'"'"')' \
       '    fi' \
       '    echo "$value"' \
       '}' \
