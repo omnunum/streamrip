@@ -123,10 +123,15 @@ RUN mv /usr/local/bin/rym-tag /usr/local/bin/rym-tag.bin && \
       '        export PROXY_USERNAME=$(get_config_value "proxy_username")' \
       '        export PROXY_PASSWORD=$(get_config_value "proxy_password")' \
       '    fi' \
+      '    # Read Groq API key for LLM matching fallback' \
+      '    GROQ_KEY=$(get_config_value "groq_api_key")' \
+      '    if [ -n "$GROQ_KEY" ]; then' \
+      '        export GROQ_API_KEY="$GROQ_KEY"' \
+      '    fi' \
       'fi' \
       '' \
       'cd /downloads' \
-      'exec gosu ${PUID:-99}:${PGID:-100} env HOME=/config PROXY_HOST="$PROXY_HOST" PROXY_PORT="$PROXY_PORT" PROXY_USERNAME="$PROXY_USERNAME" PROXY_PASSWORD="$PROXY_PASSWORD" /usr/local/bin/rym-tag.bin "$@"' \
+      'exec gosu ${PUID:-99}:${PGID:-100} env HOME=/config PROXY_HOST="$PROXY_HOST" PROXY_PORT="$PROXY_PORT" PROXY_USERNAME="$PROXY_USERNAME" PROXY_PASSWORD="$PROXY_PASSWORD" GROQ_API_KEY="$GROQ_API_KEY" /usr/local/bin/rym-tag.bin "$@"' \
       > /usr/local/bin/rym-tag && \
     chmod +x /usr/local/bin/rym-tag
 
